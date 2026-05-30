@@ -185,7 +185,7 @@ fun LoginScreen(
                   otpSent = true
                   pendingSignupUser = WhatsAppUser(
                     username = name,
-                    email = email,
+                    email = email.lowercase(),
                     phone = num,
                     bio = "Hey there! I am using GhostView.",
                     statusText = "Available",

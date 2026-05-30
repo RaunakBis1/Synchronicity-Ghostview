@@ -923,18 +923,49 @@ fun GhostViewChatsTab(
       }
 
       if (showAddContactDialog) {
+        var searchResults by remember { mutableStateOf<List<WhatsAppUser>>(emptyList()) }
+
         androidx.compose.material3.AlertDialog(
-          onDismissRequest = { showAddContactDialog = false },
+          onDismissRequest = {
+            showAddContactDialog = false
+            searchResults = emptyList()
+            contactQuery = ""
+            searchError = ""
+          },
           containerColor = Color(0xFF121B22),
           title = { Text("New Contact", color = Color.White, fontWeight = FontWeight.Bold) },
           text = {
             Column {
-              Text("Enter mobile number or email to start a secure chat.", color = Color(0xFF8E9AA4), fontSize = 13.sp)
+              Text("Search by email, phone, or username.", color = Color(0xFF8E9AA4), fontSize = 13.sp)
               Spacer(modifier = Modifier.height(12.dp))
               OutlinedTextField(
                 value = contactQuery,
-                onValueChange = { contactQuery = it },
-                label = { Text("Email or Phone (+1...)", color = Color(0xFF8E9AA4)) },
+                onValueChange = { newVal ->
+                  contactQuery = newVal
+                  searchError = ""
+                  // Live search as user types (3+ chars)
+                  if (newVal.trim().length >= 3) {
+                    coroutineScope.launch {
+                      isSearching = true
+                      val results = firestoreService?.searchUsers(newVal) ?: emptyList()
+                      // Filter out self
+                      searchResults = results.filter { it.username.lowercase() != nickname.lowercase() }
+                      if (searchResults.isEmpty()) {
+                        searchError = "No users found matching \"$newVal\""
+                      }
+                      isSearching = false
+                    }
+                  } else {
+                    searchResults = emptyList()
+                  }
+                },
+                placeholder = { Text("Email, phone, or username...", color = Color(0xFF8E9AA4)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF8E9AA4), modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                  if (isSearching) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color(0xFF00E5FF), strokeWidth = 2.dp)
+                  }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                   focusedTextColor = Color.White, unfocusedTextColor = Color.White,
                   focusedContainerColor = Color(0xFF080C10), unfocusedContainerColor = Color(0xFF080C10),
@@ -944,8 +975,86 @@ fun GhostViewChatsTab(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
               )
-              if (searchError.isNotEmpty()) {
+
+              if (searchError.isNotEmpty() && searchResults.isEmpty()) {
                 Text(searchError, color = Color(0xFFEF4444), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+              }
+
+              // Search Results List
+              if (searchResults.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Found ${searchResults.size} user(s):", color = Color(0xFF8E9AA4), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .verticalScroll(rememberScrollState())
+                ) {
+                  searchResults.forEach { user ->
+                    Row(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1C2C35))
+                        .clickable {
+                          onPartnerSelected(user.username, user.username.replaceFirstChar { it.uppercase() })
+                          showAddContactDialog = false
+                          contactQuery = ""
+                          searchResults = emptyList()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                    ) {
+                      Box(
+                        modifier = Modifier
+                          .size(38.dp)
+                          .clip(CircleShape)
+                          .background(Color(user.avatarColor)),
+                        contentAlignment = Alignment.Center
+                      ) {
+                        Text(
+                          text = user.username.take(2).uppercase(),
+                          color = Color.Black,
+                          fontWeight = FontWeight.Bold,
+                          fontSize = 14.sp
+                        )
+                      }
+                      Spacer(modifier = Modifier.width(12.dp))
+                      Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                          text = user.username.replaceFirstChar { it.uppercase() },
+                          color = Color.White,
+                          fontWeight = FontWeight.Bold,
+                          fontSize = 14.sp
+                        )
+                        if (user.email.isNotEmpty()) {
+                          Text(
+                            text = user.email,
+                            color = Color(0xFF8E9AA4),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                          )
+                        }
+                        if (user.phone.isNotEmpty()) {
+                          Text(
+                            text = user.phone,
+                            color = Color(0xFF8E9AA4),
+                            fontSize = 10.sp
+                          )
+                        }
+                      }
+                      Icon(
+                        imageVector = Icons.Default.Chat,
+                        contentDescription = "Start Chat",
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(20.dp)
+                      )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                  }
+                }
               }
             }
           },
@@ -973,11 +1082,15 @@ fun GhostViewChatsTab(
               colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
             ) {
               if (isSearching) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
-              else Text("Start Chat", color = Color.Black, fontWeight = FontWeight.Bold)
+              else Text("Search", color = Color.Black, fontWeight = FontWeight.Bold)
             }
           },
           dismissButton = {
-            TextButton(onClick = { showAddContactDialog = false }) {
+            TextButton(onClick = {
+              showAddContactDialog = false
+              contactQuery = ""
+              searchError = ""
+            }) {
               Text("Cancel", color = Color(0xFF8E9AA4))
             }
           }

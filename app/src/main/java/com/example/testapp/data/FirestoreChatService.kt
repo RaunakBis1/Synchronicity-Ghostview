@@ -102,61 +102,89 @@ class FirestoreChatService {
   suspend fun findUserByContactInfo(query: String): WhatsAppUser? {
     val q = query.trim()
     if (q.isEmpty()) return null
+    val qLower = q.lowercase()
     
     // Try by exact username (document ID) first
     try {
-      val doc = usersCollection.document(q.lowercase()).get().await()
+      val doc = usersCollection.document(qLower).get().await()
       if (doc.exists()) {
-        return WhatsAppUser(
-          username = doc.id,
-          email = doc.getString("email") ?: "",
-          phone = doc.getString("phone") ?: "",
-          bio = doc.getString("bio") ?: "",
-          statusText = doc.getString("statusText") ?: "",
-          avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFF00E5FF.toInt(),
-          lastSeen = doc.getLong("lastSeen") ?: 0L,
-          photoBase64 = doc.getString("photoBase64")
-        )
+        return docToUser(doc)
       }
-    } catch (e: Exception) {}
+    } catch (_: Exception) {}
 
-    // Next try by email
-    return try {
-      val emailResult = usersCollection.whereEqualTo("email", q).get().await()
+    // Try by email (lowercase normalized)
+    try {
+      val emailResult = usersCollection.whereEqualTo("email", qLower).get().await()
       if (!emailResult.isEmpty) {
-        val doc = emailResult.documents.first()
-        return WhatsAppUser(
-          username = doc.id,
-          email = doc.getString("email") ?: "",
-          phone = doc.getString("phone") ?: "",
-          bio = doc.getString("bio") ?: "",
-          statusText = doc.getString("statusText") ?: "",
-          avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFF00E5FF.toInt(),
-          lastSeen = doc.getLong("lastSeen") ?: 0L,
-          photoBase64 = doc.getString("photoBase64")
-        )
+        return docToUser(emailResult.documents.first())
       }
+    } catch (_: Exception) {}
 
-      // If not found by email, try by phone
+    // Try by phone
+    try {
       val phoneResult = usersCollection.whereEqualTo("phone", q).get().await()
       if (!phoneResult.isEmpty) {
-        val doc = phoneResult.documents.first()
-        return WhatsAppUser(
-          username = doc.id,
-          email = doc.getString("email") ?: "",
-          phone = doc.getString("phone") ?: "",
-          bio = doc.getString("bio") ?: "",
-          statusText = doc.getString("statusText") ?: "",
-          avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFF00E5FF.toInt(),
-          lastSeen = doc.getLong("lastSeen") ?: 0L,
-          photoBase64 = doc.getString("photoBase64")
-        )
+        return docToUser(phoneResult.documents.first())
       }
-      
-      null
-    } catch (e: Exception) {
-      null
-    }
+    } catch (_: Exception) {}
+
+    // Fallback: scan all users for partial email/username match
+    // (handles cases where email was stored with different casing or partial input)
+    try {
+      val allUsers = usersCollection.get().await()
+      for (doc in allUsers.documents) {
+        val email = (doc.getString("email") ?: "").lowercase()
+        val phone = doc.getString("phone") ?: ""
+        val username = doc.id.lowercase()
+        if (email.isNotEmpty() && (email == qLower || email.contains(qLower) || qLower.contains(email))) {
+          return docToUser(doc)
+        }
+        if (username.contains(qLower) || qLower.contains(username)) {
+          return docToUser(doc)
+        }
+        if (phone.isNotEmpty() && (phone.contains(q) || q.contains(phone))) {
+          return docToUser(doc)
+        }
+      }
+    } catch (_: Exception) {}
+
+    return null
+  }
+
+  // Find ALL users matching a query (for search results list)
+  suspend fun searchUsers(query: String): List<WhatsAppUser> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    val qLower = q.lowercase()
+    val results = mutableListOf<WhatsAppUser>()
+
+    try {
+      val allUsers = usersCollection.get().await()
+      for (doc in allUsers.documents) {
+        val email = (doc.getString("email") ?: "").lowercase()
+        val phone = doc.getString("phone") ?: ""
+        val username = doc.id.lowercase()
+        if (email.contains(qLower) || username.contains(qLower) || phone.contains(q)) {
+          results.add(docToUser(doc))
+        }
+      }
+    } catch (_: Exception) {}
+
+    return results
+  }
+
+  // Helper to convert a Firestore document to WhatsAppUser
+  private fun docToUser(doc: com.google.firebase.firestore.DocumentSnapshot): WhatsAppUser {
+    return WhatsAppUser(
+      username = doc.id,
+      email = doc.getString("email") ?: "",
+      phone = doc.getString("phone") ?: "",
+      bio = doc.getString("bio") ?: "Hey there! I am using GhostView.",
+      statusText = doc.getString("statusText") ?: "Available",
+      avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFFFFFFFF.toInt(),
+      lastSeen = doc.getLong("lastSeen") ?: 0L,
+      photoBase64 = doc.getString("photoBase64")
+    )
   }
 
   // Update user profile fields (display name, bio, photo)
