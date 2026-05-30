@@ -289,12 +289,14 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
   // Active messages streams
   val firestoreMessages = remember { mutableStateListOf<WhatsAppMessage>() }
 
-  // Active chat stream binding
-  val currentChatId = remember(nickname, activeChatPartner) {
-    if (firestoreService != null && nickname.isNotEmpty()) {
-      firestoreService.getChatId(nickname, activeChatPartner)
-    } else {
-      ""
+  // Active chat stream binding - use derivedStateOf for reactive updates
+  val currentChatId by remember {
+    derivedStateOf {
+      if (firestoreService != null && nickname.isNotEmpty() && activeChatPartner.isNotEmpty()) {
+        firestoreService.getChatId(nickname, activeChatPartner)
+      } else {
+        ""
+      }
     }
   }
 
@@ -307,18 +309,25 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           val filtered = list.filter { it.username.lowercase().trim() != nickname.lowercase().trim() }
           firestoreUsersList.addAll(filtered)
         }
-      } catch (e: Exception) {}
+      } catch (e: Exception) {
+        Log.e("GhostView", "Error syncing users", e)
+      }
     }
 
     // Subscribe to messages in current chatroom
     LaunchedEffect(currentChatId) {
+      firestoreMessages.clear()
       if (currentChatId.isNotEmpty()) {
+        Log.d("GhostView", "Subscribing to chatId: $currentChatId (me=$nickname, partner=$activeChatPartner)")
         try {
           firestoreService.getRealtimeMessages(currentChatId).collect { list ->
+            Log.d("GhostView", "Received ${list.size} messages for chatId=$currentChatId")
             firestoreMessages.clear()
             firestoreMessages.addAll(list)
           }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+          Log.e("GhostView", "Error subscribing to messages", e)
+        }
       }
     }
   }
@@ -364,7 +373,10 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
     )
 
     if (firestoreService != null && currentChatId.isNotEmpty()) {
+      Log.d("GhostView", "Sending message: text='$text' type='$type' chatId='$currentChatId' sender='$nickname' receiver='$activeChatPartner'")
       firestoreService.sendMessage(newMsg, currentChatId)
+    } else {
+      Log.e("GhostView", "CANNOT SEND: firestoreService=${firestoreService != null} currentChatId='$currentChatId' nickname='$nickname' partner='$activeChatPartner'")
     }
   }
 
