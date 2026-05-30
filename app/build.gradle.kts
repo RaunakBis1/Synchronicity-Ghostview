@@ -46,6 +46,20 @@ kotlin {
 }
 
 dependencies {
+  // CameraX
+  val camerax_version = "1.3.0"
+  implementation("androidx.camera:camera-core:${camerax_version}")
+  implementation("androidx.camera:camera-camera2:${camerax_version}")
+  implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+  implementation("androidx.camera:camera-view:${camerax_version}")
+  implementation("com.google.guava:guava:31.1-android")
+  
+  // ML Kit Face Detection
+  implementation("com.google.mlkit:face-detection:16.1.5")
+  
+  // Coil for image loading
+  implementation("io.coil-kt:coil-compose:2.5.0")
+
   // Firebase
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.firestore)

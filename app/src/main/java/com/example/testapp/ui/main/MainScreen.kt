@@ -1,15 +1,22 @@
 package com.example.testapp.ui.main
-
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -25,14 +32,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -45,6 +55,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,9 +68,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
+import coil.compose.AsyncImage
 import com.example.testapp.data.DefaultDataRepository
 import com.example.testapp.data.FirestoreChatService
 import com.example.testapp.data.WhatsAppMessage
@@ -70,13 +86,22 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.userProfileChangeRequest
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+
+
+
+
 
 // Unified Identifier Formatting: converts raw numbers securely to a virtual email address
 fun formatAuthIdentifier(input: String): String {
@@ -3086,4 +3111,144 @@ fun formatDuration(seconds: Int): String {
 @Composable
 fun GhostViewPreview() {
   TestAppTheme { GhostViewDashboard() }
+}
+
+
+@Composable
+fun GhostViewSecureViewer(
+  imageUrl: String,
+  onClose: () -> Unit
+) {
+  val context = LocalContext.current
+  val lifecycleOwner = LocalLifecycleOwner.current
+  var isSnooperDetected by remember { mutableStateOf(false) }
+  var hasCameraPermission by remember { 
+    mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) 
+  }
+
+  val permissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestPermission()
+  ) { isGranted ->
+    hasCameraPermission = isGranted
+  }
+
+  LaunchedEffect(Unit) {
+    if (!hasCameraPermission) {
+      permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+  }
+
+  Dialog(
+    onDismissRequest = onClose,
+    properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+  ) {
+    // Apply FLAG_SECURE
+    val window = (context as? android.app.Activity)?.window
+    DisposableEffect(Unit) {
+      window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+      onDispose {
+        window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+      }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+      if (hasCameraPermission) {
+        // Hidden camera preview for ML Kit
+        AndroidView(
+          factory = { ctx ->
+            val previewView = PreviewView(ctx)
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            val executor = Executors.newSingleThreadExecutor()
+
+            cameraProviderFuture.addListener({
+              val cameraProvider = cameraProviderFuture.get()
+              val preview = androidx.camera.core.Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+              }
+
+              val options = FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .build()
+              val detector = FaceDetection.getClient(options)
+
+              val imageAnalyzer = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also {
+                  it.setAnalyzer(executor) { imageProxy ->
+                    val mediaImage = imageProxy.image
+                    if (mediaImage != null) {
+                      val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                      detector.process(image)
+                        .addOnSuccessListener { faces ->
+                          // Anti-Snoop: Blur if 2 or more faces are looking at the screen
+                          isSnooperDetected = faces.size >= 2
+                        }
+                        .addOnFailureListener { e ->
+                          Log.e("GhostView", "Face detection failed", e)
+                        }
+                        .addOnCompleteListener {
+                          imageProxy.close()
+                        }
+                    } else {
+                      imageProxy.close()
+                    }
+                  }
+                }
+
+              try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                  lifecycleOwner,
+                  CameraSelector.DEFAULT_FRONT_CAMERA,
+                  preview,
+                  imageAnalyzer
+                )
+              } catch (e: Exception) {
+                Log.e("GhostView", "Use case binding failed", e)
+              }
+            }, ContextCompat.getMainExecutor(ctx))
+            previewView
+          },
+          modifier = Modifier.size(1.dp).alpha(0f) // Hidden from view
+        )
+      }
+
+      // The secure image
+      AsyncImage(
+        model = imageUrl,
+        contentDescription = "Secure Photo",
+        modifier = Modifier
+          .fillMaxSize()
+          .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
+      )
+
+      if (isSnooperDetected) {
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Red.copy(alpha = 0.5f)),
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = "⚠️ SNOOPER DETECTED ⚠️",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 24.sp
+          )
+        }
+      }
+
+      // Close button
+      IconButton(
+        onClick = onClose,
+        modifier = Modifier
+          .align(Alignment.TopEnd)
+          .padding(32.dp)
+          .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+      ) {
+        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+      }
+    }
+  }
 }

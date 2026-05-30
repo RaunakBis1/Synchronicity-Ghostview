@@ -30,7 +30,8 @@ data class WhatsAppMessage(
   val fileSize: String? = null,
   val voiceDurationSec: Int = 0,
   val reactions: Map<String, String> = emptyMap(), // username -> reaction emoji
-  val disappearing: Boolean = false
+  val disappearing: Boolean = false,
+  val isViewed: Boolean = false
 )
 
 data class WhatsAppUser(
@@ -302,5 +303,11 @@ class FirestoreChatService {
     val date = Date(millis)
     val format = SimpleDateFormat("h:mm a", Locale.getDefault())
     return format.format(date)
+  }
+
+  // 9. Mark One-Time message as viewed
+  fun markMessageAsViewed(messageId: String) {
+    messagesCollection.document(messageId).update("isViewed", true)
+      .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error marking message as viewed", e) }
   }
 }
