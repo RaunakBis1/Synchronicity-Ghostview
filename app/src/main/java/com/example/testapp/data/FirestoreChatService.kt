@@ -180,8 +180,6 @@ class FirestoreChatService {
   fun getRealtimeMessages(chatId: String): Flow<List<WhatsAppMessage>> = callbackFlow {
     val listener = messagesCollection
       .whereEqualTo("chatId", chatId)
-      .orderBy("timestamp", Query.Direction.ASCENDING)
-      .limit(150)
       .addSnapshotListener { snapshot, error ->
         if (error != null) {
           close(error)
@@ -233,7 +231,7 @@ class FirestoreChatService {
               disappearing = disappearing
             )
           }
-          trySend(messageList)
+          trySend(messageList.sortedBy { it.timestamp })
         }
       }
     awaitClose { listener.remove() }
