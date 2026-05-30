@@ -66,6 +66,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -199,6 +201,65 @@ fun Base64Image(base64Str: String, modifier: Modifier = Modifier) {
     ) {
       Icon(imageVector = Icons.Default.BrokenImage, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(32.dp))
     }
+  }
+}
+
+// Reusable avatar that shows profile photo or fallback initials
+@Composable
+fun UserAvatar(
+  photoBase64: String? = null,
+  username: String,
+  avatarColor: Color = Color(0xFF1E293B),
+  size: Dp = 46.dp,
+  textSize: TextUnit = 15.sp
+) {
+  if (!photoBase64.isNullOrEmpty()) {
+    val imageBitmap = remember(photoBase64) {
+      try {
+        val decodedBytes = Base64.decode(photoBase64, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+        bitmap?.asImageBitmap()
+      } catch (e: Exception) {
+        null
+      }
+    }
+    if (imageBitmap != null) {
+      Image(
+        bitmap = imageBitmap,
+        contentDescription = "$username avatar",
+        modifier = Modifier
+          .size(size)
+          .clip(CircleShape),
+        contentScale = ContentScale.Crop
+      )
+    } else {
+      AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
+    }
+  } else {
+    AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
+  }
+}
+
+@Composable
+private fun AvatarFallback(
+  username: String,
+  avatarColor: Color,
+  size: Dp,
+  textSize: TextUnit
+) {
+  Box(
+    modifier = Modifier
+      .size(size)
+      .clip(CircleShape)
+      .background(avatarColor),
+    contentAlignment = Alignment.Center
+  ) {
+    Text(
+      text = username.take(2).uppercase(),
+      color = Color.Black,
+      fontWeight = FontWeight.Bold,
+      fontSize = textSize
+    )
   }
 }
 
@@ -875,20 +936,13 @@ fun GhostViewChatsTab(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Box(
-                    modifier = Modifier
-                      .size(46.dp)
-                      .clip(CircleShape)
-                      .background(Color(user.avatarColor)),
-                    contentAlignment = Alignment.Center
-                  ) {
-                    Text(
-                      text = user.username.take(2).uppercase(),
-                      color = Color.Black,
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 15.sp
-                    )
-                  }
+                  UserAvatar(
+                    photoBase64 = user.photoBase64,
+                    username = user.username,
+                    avatarColor = Color(user.avatarColor),
+                    size = 46.dp,
+                    textSize = 15.sp
+                  )
                   Spacer(modifier = Modifier.width(16.dp))
                   Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -1018,20 +1072,13 @@ fun GhostViewChatsTab(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                       verticalAlignment = Alignment.CenterVertically
                     ) {
-                      Box(
-                        modifier = Modifier
-                          .size(38.dp)
-                          .clip(CircleShape)
-                          .background(Color(user.avatarColor)),
-                        contentAlignment = Alignment.Center
-                      ) {
-                        Text(
-                          text = user.username.take(2).uppercase(),
-                          color = Color.Black,
-                          fontWeight = FontWeight.Bold,
-                          fontSize = 14.sp
-                        )
-                      }
+                      UserAvatar(
+                        photoBase64 = user.photoBase64,
+                        username = user.username,
+                        avatarColor = Color(user.avatarColor),
+                        size = 38.dp,
+                        textSize = 14.sp
+                      )
                       Spacer(modifier = Modifier.width(12.dp))
                       Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -1115,6 +1162,7 @@ fun GhostViewChatsTab(
         ChatWindow(
           nickname = nickname,
           chatPartnerName = activePartnerName,
+          chatPartnerPhoto = activeUsers.find { it.username.lowercase() == activePartner.lowercase() }?.photoBase64,
           messages = messagesList,
           chatBg = chatBg,
           doodleMode = doodleMode,
@@ -1137,6 +1185,7 @@ fun GhostViewChatsTab(
 fun ChatWindow(
   nickname: String,
   chatPartnerName: String,
+  chatPartnerPhoto: String? = null,
   messages: List<WhatsAppMessage>,
   chatBg: Brush,
   doodleMode: Boolean,
@@ -1263,15 +1312,12 @@ fun ChatWindow(
               Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.width(4.dp))
-            Box(
-              modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF1E293B)),
-              contentAlignment = Alignment.Center
-            ) {
-              Text(if (chatPartnerName.isNotEmpty()) chatPartnerName.take(1) else "?", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
+            UserAvatar(
+              photoBase64 = chatPartnerPhoto,
+              username = if (chatPartnerName.isNotEmpty()) chatPartnerName else "?",
+              size = 38.dp,
+              textSize = 14.sp
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Column {
               Text(chatPartnerName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
