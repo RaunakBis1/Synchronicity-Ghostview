@@ -2736,16 +2736,25 @@ fun GhostViewSettingsTab(
               fbAuth.currentUser?.updateProfile(userProfileChangeRequest {
                 displayName = editDisplayName.trim()
               })?.addOnCompleteListener {
-                // Update Firestore bio + status
-                firestoreService?.updateUserProfile(
-                  username = username,
-                  newBio = editBio.trim(),
-                  newStatusText = editStatusText.trim()
+                // Update Firestore bio + status + name
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val docRef = db.collection("ghostview_users").document(username.lowercase().trim())
+                val updates = mutableMapOf<String, Any>(
+                  "bio" to editBio.trim(),
+                  "statusText" to editStatusText.trim(),
+                  "lastSeen" to System.currentTimeMillis()
                 )
-                isSavingProfile = false
-                onNicknameChanged(editDisplayName.trim())
-                showEditProfileDialog = false
-                Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                docRef.update(updates)
+                  .addOnSuccessListener {
+                    isSavingProfile = false
+                    onNicknameChanged(editDisplayName.trim())
+                    showEditProfileDialog = false
+                    Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                  }
+                  .addOnFailureListener {
+                    isSavingProfile = false
+                    Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
+                  }
               }
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
