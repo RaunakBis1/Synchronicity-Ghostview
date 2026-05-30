@@ -915,10 +915,27 @@ fun GhostViewAuthOnboarding(
                     
                     firestoreService?.usersCollection?.document(name.lowercase())?.get()
                       ?.addOnSuccessListener { doc ->
-                        val phone = doc.getString("phone") ?: ""
-                        loadingState = false
-                        onJoined(name, phone)
-                        Toast.makeText(context, "Welcome back, $name!", Toast.LENGTH_SHORT).show()
+                        if (doc != null && doc.exists()) {
+                            val phone = doc.getString("phone") ?: ""
+                            loadingState = false
+                            onJoined(name, phone)
+                            Toast.makeText(context, "Welcome back, $name!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // User exists in Firebase Auth but not in Firestore (maybe skipped OTP or logged out early)
+                            val fallbackUser = WhatsAppUser(
+                                username = name,
+                                email = email,
+                                phone = "",
+                                bio = "Hey there! I am using GhostView.",
+                                statusText = "Available",
+                                avatarColor = 0xFF00E5FF.toInt(),
+                                lastSeen = System.currentTimeMillis()
+                            )
+                            firestoreService?.registerUser(fallbackUser)
+                            loadingState = false
+                            onJoined(name, "")
+                            Toast.makeText(context, "Welcome back, $name!", Toast.LENGTH_SHORT).show()
+                        }
                       }?.addOnFailureListener {
                         loadingState = false
                         onJoined(name, "")
@@ -927,7 +944,16 @@ fun GhostViewAuthOnboarding(
                   }
                   .addOnFailureListener { exception ->
                     loadingState = false
-                    errorMessage = exception.localizedMessage ?: "Log In failed."
+                    val msg = exception.localizedMessage ?: "Log In failed."
+                    if (msg.contains("There is no user record")) {
+                        errorMessage = "No account found for this email. Please click 'Create Account' below."
+                    } else if (msg.contains("disabled")) {
+                        errorMessage = "Firebase Auth Email/Password provider is DISABLED in your console! Please enable it."
+                    } else if (msg.contains("INVALID_LOGIN_CREDENTIALS") || msg.contains("invalid")) {
+                        errorMessage = "Wrong email or password."
+                    } else {
+                        errorMessage = msg
+                    }
                   }
               } else {
                 val num = phoneNumber.trim()
