@@ -94,6 +94,7 @@ class FirestoreChatService {
       "photoBase64" to user.photoBase64
     )
     usersCollection.document(user.username.lowercase().trim()).set(userData)
+      .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error registering user", e) }
   }
 
   // Find user by email or phone (New Contact Lookup)
@@ -101,7 +102,24 @@ class FirestoreChatService {
     val q = query.trim()
     if (q.isEmpty()) return null
     
-    // First try by email
+    // Try by exact username (document ID) first
+    try {
+      val doc = usersCollection.document(q.lowercase()).get().await()
+      if (doc.exists()) {
+        return WhatsAppUser(
+          username = doc.id,
+          email = doc.getString("email") ?: "",
+          phone = doc.getString("phone") ?: "",
+          bio = doc.getString("bio") ?: "",
+          statusText = doc.getString("statusText") ?: "",
+          avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFF00E5FF.toInt(),
+          lastSeen = doc.getLong("lastSeen") ?: 0L,
+          photoBase64 = doc.getString("photoBase64")
+        )
+      }
+    } catch (e: Exception) {}
+
+    // Next try by email
     return try {
       val emailResult = usersCollection.whereEqualTo("email", q).get().await()
       if (!emailResult.isEmpty) {
@@ -243,6 +261,7 @@ class FirestoreChatService {
       "disappearing" to msg.disappearing
     )
     messagesCollection.add(messageData)
+      .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error sending message", e) }
   }
 
   // 6. Cast a vote on a poll
