@@ -146,8 +146,10 @@ fun uriToBase64(context: android.content.Context, uri: Uri): Pair<String, String
     
     val mimeType = context.contentResolver.getType(uri)
     if (mimeType?.startsWith("image") == true) {
-      val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+      var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
       if (bitmap != null) {
+        // Fix EXIF rotation
+        bitmap = correctBitmapOrientation(context, uri, bitmap)
         val outputStream = ByteArrayOutputStream()
         // Compress highly to remain securely below Firestore's 1MB document limit
         bitmap.compress(Bitmap.CompressFormat.JPEG, 25, outputStream)
@@ -161,6 +163,85 @@ fun uriToBase64(context: android.content.Context, uri: Uri): Pair<String, String
     Pair(base64, fileName)
   } catch (e: Exception) {
     Pair("", "")
+  }
+}
+
+// Fix EXIF rotation for images selected from gallery
+fun correctBitmapOrientation(context: android.content.Context, uri: Uri, bitmap: Bitmap): Bitmap {
+  return try {
+    val inputStream = context.contentResolver.openInputStream(uri) ?: return bitmap
+    val exif = androidx.exifinterface.media.ExifInterface(inputStream)
+    val orientation = exif.getAttributeInt(
+      androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+    )
+    inputStream.close()
+    
+    val matrix = android.graphics.Matrix()
+    when (orientation) {
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+      androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+      else -> return bitmap
+    }
+    
+    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    rotated
+  } catch (e: Exception) {
+    bitmap
+  }
+}
+
+// Process profile photo: correct rotation, center-crop to square, compress
+fun processProfilePhoto(context: android.content.Context, uri: Uri): Bitmap? {
+  return try {
+    val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+    val bytes = inputStream.readBytes()
+    inputStream.close()
+    
+    // Decode with size limits to prevent OOM
+    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    val targetSize = 512
+    var sampleSize = 1
+    while (options.outWidth / sampleSize > targetSize * 2 || options.outHeight / sampleSize > targetSize * 2) {
+      sampleSize *= 2
+    }
+    
+    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions) ?: return null
+    
+    // Fix EXIF rotation
+    bitmap = correctBitmapOrientation(context, uri, bitmap)
+    
+    bitmap
+  } catch (e: Exception) {
+    null
+  }
+}
+
+// Crop bitmap to square from center
+fun cropBitmapToSquare(bitmap: Bitmap): Bitmap {
+  val size = minOf(bitmap.width, bitmap.height)
+  val x = (bitmap.width - size) / 2
+  val y = (bitmap.height - size) / 2
+  return Bitmap.createBitmap(bitmap, x, y, size, size)
+}
+
+// Convert bitmap to Base64 for Firestore storage
+fun bitmapToProfileBase64(bitmap: Bitmap): String {
+  return try {
+    val square = cropBitmapToSquare(bitmap)
+    // Scale down to 256x256 for profile photos
+    val scaled = Bitmap.createScaledBitmap(square, 256, 256, true)
+    val outputStream = ByteArrayOutputStream()
+    scaled.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
+    val bytes = outputStream.toByteArray()
+    Base64.encodeToString(bytes, Base64.DEFAULT)
+  } catch (e: Exception) {
+    ""
   }
 }
 
@@ -2364,6 +2445,13 @@ fun GhostViewSettingsTab(
   // Profile photo state (Base64)
   var profilePhotoBase64 by remember { mutableStateOf<String?>(null) }
 
+  // Photo preview/crop dialog state
+  var pendingPhotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
+  var showPhotoCropDialog by remember { mutableStateOf(false) }
+  var cropScale by remember { mutableFloatStateOf(1f) }
+  var cropOffsetX by remember { mutableFloatStateOf(0f) }
+  var cropOffsetY by remember { mutableFloatStateOf(0f) }
+
   // Load existing bio from Firestore
   LaunchedEffect(username) {
     if (username.isNotEmpty()) {
@@ -2380,17 +2468,162 @@ fun GhostViewSettingsTab(
     }
   }
 
-  // Profile photo picker launcher
+  // Profile photo picker launcher — now opens preview dialog instead of uploading directly
   val photoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.GetContent()
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val (base64, _) = uriToBase64(context, uri)
-        if (base64.isNotEmpty()) {
-          profilePhotoBase64 = base64
-          firestoreService?.updateUserProfile(username = username, newPhotoBase64 = base64)
-          Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
+        val bitmap = processProfilePhoto(context, uri)
+        if (bitmap != null) {
+          pendingPhotoBitmap = bitmap
+          cropScale = 1f
+          cropOffsetX = 0f
+          cropOffsetY = 0f
+          showPhotoCropDialog = true
+        } else {
+          Toast.makeText(context, "Failed to load image", Toast.LENGTH_SHORT).show()
+        }
+      }
+    }
+  }
+
+  // Photo Crop & Preview Dialog
+  if (showPhotoCropDialog && pendingPhotoBitmap != null) {
+    val bmp = pendingPhotoBitmap!!
+    val previewBitmap = remember(bmp) { bmp.asImageBitmap() }
+    var isUploading by remember { mutableStateOf(false) }
+
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .background(Color(0xE6000000))
+        .clickable(enabled = false) {},
+      contentAlignment = Alignment.Center
+    ) {
+      Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF121B22)),
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(24.dp)
+      ) {
+        Column(
+          modifier = Modifier.padding(24.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+          // Title
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text("Preview Profile Photo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            IconButton(onClick = {
+              showPhotoCropDialog = false
+              pendingPhotoBitmap = null
+            }) {
+              Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8E9AA4))
+            }
+          }
+
+          HorizontalDivider(color = Color(0xFF24303B))
+
+          // Circular preview
+          Box(
+            modifier = Modifier
+              .size(200.dp)
+              .clip(CircleShape)
+              .background(Color(0xFF1E293B))
+              .border(2.dp, Color(0xFF00E5FF), CircleShape),
+            contentAlignment = Alignment.Center
+          ) {
+            Image(
+              bitmap = previewBitmap,
+              contentDescription = "Profile photo preview",
+              modifier = Modifier
+                .size(200.dp)
+                .clip(CircleShape)
+                .graphicsLayer(
+                  scaleX = cropScale,
+                  scaleY = cropScale,
+                  translationX = cropOffsetX,
+                  translationY = cropOffsetY
+                ),
+              contentScale = ContentScale.Crop
+            )
+          }
+
+          Text("Pinch to zoom • Drag to reposition", color = Color(0xFF8E9AA4), fontSize = 11.sp)
+
+          // Zoom slider
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Icon(Icons.Default.ZoomOut, contentDescription = null, tint = Color(0xFF8E9AA4), modifier = Modifier.size(18.dp))
+            Slider(
+              value = cropScale,
+              onValueChange = { cropScale = it },
+              valueRange = 0.5f..3f,
+              modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+              colors = SliderDefaults.colors(
+                thumbColor = Color(0xFF00E5FF),
+                activeTrackColor = Color(0xFF00E5FF),
+                inactiveTrackColor = Color(0xFF24303B)
+              )
+            )
+            Icon(Icons.Default.ZoomIn, contentDescription = null, tint = Color(0xFF8E9AA4), modifier = Modifier.size(18.dp))
+          }
+
+          // Action buttons
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            // Cancel button
+            OutlinedButton(
+              onClick = {
+                showPhotoCropDialog = false
+                pendingPhotoBitmap = null
+              },
+              modifier = Modifier.weight(1f),
+              border = BorderStroke(1.dp, Color(0xFF24303B)),
+              colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8E9AA4))
+            ) {
+              Text("Cancel")
+            }
+
+            // Confirm button
+            Button(
+              onClick = {
+                isUploading = true
+                coroutineScope.launch {
+                  val base64 = bitmapToProfileBase64(bmp)
+                  if (base64.isNotEmpty()) {
+                    profilePhotoBase64 = base64
+                    firestoreService?.updateUserProfile(username = username, newPhotoBase64 = base64)
+                    Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
+                  }
+                  isUploading = false
+                  showPhotoCropDialog = false
+                  pendingPhotoBitmap = null
+                }
+              },
+              modifier = Modifier.weight(1f),
+              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+              enabled = !isUploading
+            ) {
+              if (isUploading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+              } else {
+                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Set Photo", color = Color.Black, fontWeight = FontWeight.Bold)
+              }
+            }
+          }
         }
       }
     }

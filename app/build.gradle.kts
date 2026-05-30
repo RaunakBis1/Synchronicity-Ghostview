@@ -63,6 +63,9 @@ dependencies {
   // Coil for image loading
   implementation("io.coil-kt:coil-compose:2.5.0")
 
+  // ExifInterface for image rotation correction
+  implementation("androidx.exifinterface:exifinterface:1.3.7")
+
   // Firebase
   implementation(platform(libs.firebase.bom))
   implementation(libs.firebase.firestore)
