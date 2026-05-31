@@ -43,7 +43,8 @@ data class WhatsAppUser(
   val statusText: String,
   val avatarColor: Int, // Hex value
   val lastSeen: Long,
-  val photoBase64: String? = null // Profile photo stored as Base64
+  val photoBase64: String? = null, // Profile photo stored as Base64
+  val displayName: String? = null
 )
 
 class FirestoreChatService {
@@ -75,8 +76,9 @@ class FirestoreChatService {
           val avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFF8B5CF6.toInt()
           val lastSeen = doc.getLong("lastSeen") ?: 0L
           val photoBase64 = doc.getString("photoBase64")
+          val displayName = doc.getString("displayName")
 
-          WhatsAppUser(username, email, phone, bio, statusText, avatarColor, lastSeen, photoBase64)
+          WhatsAppUser(username, email, phone, bio, statusText, avatarColor, lastSeen, photoBase64, displayName)
         }
         trySend(users)
       }
@@ -93,7 +95,8 @@ class FirestoreChatService {
       "statusText" to user.statusText,
       "avatarColor" to user.avatarColor.toLong(),
       "lastSeen" to System.currentTimeMillis(),
-      "photoBase64" to user.photoBase64
+      "photoBase64" to user.photoBase64,
+      "displayName" to (user.displayName ?: user.username.replaceFirstChar { it.uppercase() })
     )
     usersCollection.document(user.username.lowercase().trim()).set(userData)
       .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error registering user", e) }
@@ -184,7 +187,8 @@ class FirestoreChatService {
       statusText = doc.getString("statusText") ?: "Available",
       avatarColor = doc.getLong("avatarColor")?.toInt() ?: 0xFFFFFFFF.toInt(),
       lastSeen = doc.getLong("lastSeen") ?: 0L,
-      photoBase64 = doc.getString("photoBase64")
+      photoBase64 = doc.getString("photoBase64"),
+      displayName = doc.getString("displayName")
     )
   }
 
@@ -193,12 +197,14 @@ class FirestoreChatService {
     username: String,
     newBio: String? = null,
     newPhotoBase64: String? = null,
-    newStatusText: String? = null
+    newStatusText: String? = null,
+    newDisplayName: String? = null
   ) {
     val updates = mutableMapOf<String, Any>()
     if (newBio != null) updates["bio"] = newBio
     if (newPhotoBase64 != null) updates["photoBase64"] = newPhotoBase64
     if (newStatusText != null) updates["statusText"] = newStatusText
+    if (newDisplayName != null) updates["displayName"] = newDisplayName
     updates["lastSeen"] = System.currentTimeMillis()
     if (updates.isNotEmpty()) {
       usersCollection.document(username.lowercase().trim()).update(updates)

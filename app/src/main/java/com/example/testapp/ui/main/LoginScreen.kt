@@ -55,9 +55,9 @@ import kotlin.math.sin
 private val ColorPureBlack = Color(0xFF000000)
 private val ColorCharcoal = Color(0xFF111111)
 private val ColorWhite = Color(0xFFFFFFFF)
-private val ColorSoftGray = Color(0xFFCFCFCF)
+private val ColorSoftGray = Color(0xFF8E9AA4)
 private val ColorBorderGray = Color(0x26FFFFFF) // rgba(255,255,255,0.15)
-private val ColorTextFieldContainer = Color(0x0FFFFFFF) // 6% Opacity White
+private val ColorTextFieldContainer = Color(0xFF13171F)
 
 @Composable
 fun LoginScreen(
@@ -210,16 +210,8 @@ fun LoginScreen(
       .fillMaxSize()
       .background(ColorPureBlack)
   ) {
-    // 1. Simplified background to reduce emulator load
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .background(
-          Brush.verticalGradient(
-            colors = listOf(ColorPureBlack, ColorCharcoal)
-          )
-        )
-    )
+    // 1. Premium 3D spheres background
+    DoodleBackground(modifier = Modifier.fillMaxSize())
 
     // 2. Main interactive viewport scrollable content
     Box(
@@ -227,15 +219,65 @@ fun LoginScreen(
         .fillMaxSize()
         .imePadding()
         .verticalScroll(rememberScrollState()),
-      contentAlignment = Alignment.Center
+      contentAlignment = Alignment.TopCenter
     ) {
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(24.dp),
+          .padding(top = 40.dp, bottom = 24.dp, start = 24.dp, end = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Top
       ) {
+        // Top-left Brand Logo and Title (outside the card)
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 24.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.Start
+        ) {
+          Box(
+            modifier = Modifier
+              .size(40.dp)
+              .clip(RoundedCornerShape(10.dp))
+              .background(Color(0xFF0F141C))
+              .border(1.2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+          ) {
+            Box(
+              contentAlignment = Alignment.Center
+            ) {
+              Icon(
+                imageVector = Icons.Default.ChatBubble,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+              )
+              // 3 tiny dots inside the bubble
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                repeat(3) {
+                  Box(
+                    modifier = Modifier
+                      .size(2.dp)
+                      .clip(CircleShape)
+                      .background(Color.Black)
+                  )
+                }
+              }
+            }
+          }
+          Spacer(modifier = Modifier.width(10.dp))
+          Text(
+            text = "GhostView",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+          )
+        }
+
         LoginCard(
           isLoginMode = isLoginMode,
           otpSent = otpSent,
@@ -335,21 +377,16 @@ fun LoginCard(
   Card(
     shape = RoundedCornerShape(32.dp),
     border = BorderStroke(
-      width = 1.2.dp,
-      brush = Brush.verticalGradient(
-        colors = listOf(
-          ColorWhite.copy(alpha = 0.22f), // Soft white highlight top edge
-          ColorWhite.copy(alpha = 0.05f)  // Subtle blend bottom edge
-        )
-      )
+      width = 1.dp,
+      color = ColorWhite.copy(alpha = 0.15f)
     ),
     colors = CardDefaults.cardColors(
-      containerColor = ColorCharcoal.copy(alpha = 0.60f) // Frosted 18% equivalent dark glass base
+      containerColor = ColorCharcoal.copy(alpha = 0.65f) // Frosted dark glass base
     ),
     modifier = modifier
       .widthIn(max = 380.dp)
       .fillMaxWidth()
-      .padding(vertical = 16.dp)
+      .padding(vertical = 8.dp)
       .shadow(
         elevation = 36.dp,
         shape = RoundedCornerShape(32.dp),
@@ -357,15 +394,6 @@ fun LoginCard(
         spotColor = ColorPureBlack.copy(alpha = 0.85f),
         ambientColor = ColorWhite.copy(alpha = 0.08f)
       )
-      .drawBehind {
-        // Inner highlight glow on top edges
-        val innerGlow = Brush.radialGradient(
-          colors = listOf(ColorWhite.copy(alpha = 0.06f), Color.Transparent),
-          center = Offset(size.width / 2f, 0f),
-          radius = size.width
-        )
-        drawRect(brush = innerGlow)
-      }
       .drawWithContent {
         drawContent()
         
@@ -374,7 +402,7 @@ fun LoginCard(
           colors = listOf(
             Color.Transparent,
             ColorWhite.copy(alpha = 0.01f),
-            ColorWhite.copy(alpha = 0.12f), // reflection line peak
+            ColorWhite.copy(alpha = 0.10f), // reflection line peak
             ColorWhite.copy(alpha = 0.01f),
             Color.Transparent
           ),
@@ -391,27 +419,20 @@ fun LoginCard(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-      // 1. App logo at the top
+      // 1. Slashed-eye circular badge (Inside the card)
       Box(
         modifier = Modifier
-          .size(60.dp)
+          .size(64.dp)
           .clip(CircleShape)
-          .background(
-            brush = Brush.radialGradient(
-              colors = listOf(
-                ColorWhite.copy(alpha = 0.20f),
-                ColorWhite.copy(alpha = 0.03f)
-              )
-            )
-          )
-          .border(1.2.dp, ColorWhite.copy(alpha = 0.18f), CircleShape),
+          .background(ColorWhite.copy(alpha = 0.05f))
+          .border(1.dp, ColorWhite.copy(alpha = 0.2f), CircleShape),
         contentAlignment = Alignment.Center
       ) {
         Icon(
           imageVector = Icons.Default.VisibilityOff,
-          contentDescription = "GhostView App Logo",
+          contentDescription = "Privacy Shield",
           tint = ColorWhite,
-          modifier = Modifier.size(32.dp)
+          modifier = Modifier.size(28.dp)
         )
       }
 
@@ -510,13 +531,13 @@ fun LoginCard(
                     modifier = Modifier
                       .size(18.dp)
                       .border(
-                        width = 1.5.dp,
-                        color = if (rememberMe) ColorWhite else ColorBorderGray,
-                        shape = RoundedCornerShape(4.dp)
+                        width = 1.dp,
+                        color = if (rememberMe) ColorWhite else ColorWhite.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(5.dp)
                       )
                       .background(
-                        color = if (rememberMe) ColorWhite else Color.Transparent,
-                        shape = RoundedCornerShape(4.dp)
+                        color = if (rememberMe) Color.Transparent else Color.Transparent,
+                        shape = RoundedCornerShape(5.dp)
                       ),
                     contentAlignment = Alignment.Center
                   ) {
@@ -524,25 +545,23 @@ fun LoginCard(
                       Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        tint = ColorPureBlack,
+                        tint = ColorWhite,
                         modifier = Modifier.size(12.dp)
                       )
                     }
                   }
-                  Spacer(modifier = Modifier.width(6.dp))
+                  Spacer(modifier = Modifier.width(8.dp))
                   Text(
                     text = "Remember me",
-                    color = ColorSoftGray,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+                    color = ColorWhite.copy(alpha = 0.8f),
+                    fontSize = 12.sp
                   )
                 }
 
                 Text(
-                  text = "Forget your password?",
-                  color = ColorWhite,
+                  text = "Forgot your password?",
+                  color = ColorWhite.copy(alpha = 0.6f),
                   fontSize = 12.sp,
-                  fontWeight = FontWeight.SemiBold,
                   modifier = Modifier.clickable(onClick = onForgotPasswordClick)
                 )
               }
@@ -613,18 +632,28 @@ fun LoginCard(
         )
       }
 
-      // 1. Primary Solid Action Button
+      // 1. Primary Capsule Silver/White Gradient Action Button
       Button(
         onClick = onSubmit,
         interactionSource = primaryInteractionSource,
         colors = ButtonDefaults.buttonColors(
-          containerColor = ColorWhite,
+          containerColor = Color.Transparent,
           contentColor = ColorPureBlack
         ),
-        shape = RoundedCornerShape(25.dp),
+        shape = RoundedCornerShape(26.dp),
+        contentPadding = PaddingValues(0.dp),
         modifier = Modifier
           .fillMaxWidth()
-          .height(50.dp)
+          .height(52.dp)
+          .background(
+            brush = Brush.verticalGradient(
+              colors = listOf(
+                Color(0xFFECEFF1), // Silver highlight top
+                Color(0xFFB0BEC5)  // Muted steel bottom
+              )
+            ),
+            shape = RoundedCornerShape(26.dp)
+          )
           .graphicsLayer {
             scaleX = primaryScale
             scaleY = primaryScale
@@ -640,6 +669,7 @@ fun LoginCard(
           Text(
             text = if (otpSent) "Verify OTP" else if (isLoginMode) "Sign In" else "Sign Up",
             fontWeight = FontWeight.Bold,
+            color = ColorPureBlack,
             fontSize = 15.sp
           )
         }
@@ -721,17 +751,17 @@ fun EmailField(
   OutlinedTextField(
     value = value,
     onValueChange = onValueChange,
-    placeholder = { Text("example@gmail.com", color = ColorSoftGray.copy(alpha = 0.5f)) },
+    placeholder = { Text("example@gmail.com", color = ColorWhite.copy(alpha = 0.35f)) },
     leadingIcon = {
       Icon(
         imageVector = Icons.Default.Email,
         contentDescription = null,
-        tint = ColorSoftGray,
+        tint = ColorWhite.copy(alpha = 0.7f),
         modifier = Modifier.size(20.dp)
       )
     },
     singleLine = true,
-    shape = RoundedCornerShape(16.dp),
+    shape = RoundedCornerShape(26.dp),
     keyboardOptions = KeyboardOptions(
       keyboardType = KeyboardType.Email,
       imeAction = ImeAction.Next
@@ -742,15 +772,15 @@ fun EmailField(
       focusedContainerColor = ColorTextFieldContainer,
       unfocusedContainerColor = ColorTextFieldContainer,
       cursorColor = ColorWhite,
-      focusedBorderColor = ColorWhite.copy(alpha = borderAlpha),
-      unfocusedBorderColor = ColorWhite.copy(alpha = 0.1f)
+      focusedBorderColor = ColorWhite.copy(alpha = 0.35f),
+      unfocusedBorderColor = ColorWhite.copy(alpha = 0.12f)
     ),
     modifier = modifier
       .fillMaxWidth()
       .onFocusChanged { isFocused = it.isFocused }
       .shadow(
-        elevation = if (isFocused) 8.dp else 0.dp,
-        shape = RoundedCornerShape(16.dp),
+        elevation = if (isFocused) 6.dp else 0.dp,
+        shape = RoundedCornerShape(26.dp),
         clip = false,
         spotColor = ColorWhite.copy(alpha = glowAlpha)
       )
@@ -781,12 +811,12 @@ fun PasswordField(
   OutlinedTextField(
     value = value,
     onValueChange = onValueChange,
-    placeholder = { Text("••••••••••••", color = ColorSoftGray.copy(alpha = 0.5f)) },
+    placeholder = { Text("••••••••••••", color = ColorWhite.copy(alpha = 0.35f)) },
     leadingIcon = {
       Icon(
         imageVector = Icons.Default.Lock,
         contentDescription = null,
-        tint = ColorSoftGray,
+        tint = ColorWhite.copy(alpha = 0.7f),
         modifier = Modifier.size(20.dp)
       )
     },
@@ -795,14 +825,14 @@ fun PasswordField(
         Icon(
           imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
           contentDescription = "Toggle password visibility",
-          tint = ColorSoftGray,
+          tint = ColorWhite.copy(alpha = 0.6f),
           modifier = Modifier.size(20.dp)
         )
       }
     },
     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
     singleLine = true,
-    shape = RoundedCornerShape(16.dp),
+    shape = RoundedCornerShape(26.dp),
     keyboardOptions = KeyboardOptions(
       keyboardType = KeyboardType.Password,
       imeAction = imeAction
@@ -817,15 +847,15 @@ fun PasswordField(
       focusedContainerColor = ColorTextFieldContainer,
       unfocusedContainerColor = ColorTextFieldContainer,
       cursorColor = ColorWhite,
-      focusedBorderColor = ColorWhite.copy(alpha = borderAlpha),
-      unfocusedBorderColor = ColorWhite.copy(alpha = 0.1f)
+      focusedBorderColor = ColorWhite.copy(alpha = 0.35f),
+      unfocusedBorderColor = ColorWhite.copy(alpha = 0.12f)
     ),
     modifier = modifier
       .fillMaxWidth()
       .onFocusChanged { isFocused = it.isFocused }
       .shadow(
-        elevation = if (isFocused) 8.dp else 0.dp,
-        shape = RoundedCornerShape(16.dp),
+        elevation = if (isFocused) 6.dp else 0.dp,
+        shape = RoundedCornerShape(26.dp),
         clip = false,
         spotColor = ColorWhite.copy(alpha = glowAlpha)
       )
@@ -858,17 +888,17 @@ fun CustomTextField(
   OutlinedTextField(
     value = value,
     onValueChange = onValueChange,
-    placeholder = { Text(label, color = ColorSoftGray.copy(alpha = 0.5f)) },
+    placeholder = { Text(label, color = ColorWhite.copy(alpha = 0.35f)) },
     leadingIcon = {
       Icon(
         imageVector = leadingIcon,
         contentDescription = null,
-        tint = ColorSoftGray,
+        tint = ColorWhite.copy(alpha = 0.7f),
         modifier = Modifier.size(20.dp)
       )
     },
     singleLine = true,
-    shape = RoundedCornerShape(16.dp),
+    shape = RoundedCornerShape(26.dp),
     keyboardOptions = KeyboardOptions(
       keyboardType = keyboardType,
       imeAction = imeAction
@@ -882,15 +912,15 @@ fun CustomTextField(
       focusedContainerColor = ColorTextFieldContainer,
       unfocusedContainerColor = ColorTextFieldContainer,
       cursorColor = ColorWhite,
-      focusedBorderColor = ColorWhite.copy(alpha = borderAlpha),
-      unfocusedBorderColor = ColorWhite.copy(alpha = 0.1f)
+      focusedBorderColor = ColorWhite.copy(alpha = 0.35f),
+      unfocusedBorderColor = ColorWhite.copy(alpha = 0.12f)
     ),
     modifier = modifier
       .fillMaxWidth()
       .onFocusChanged { isFocused = it.isFocused }
       .shadow(
-        elevation = if (isFocused) 8.dp else 0.dp,
-        shape = RoundedCornerShape(16.dp),
+        elevation = if (isFocused) 6.dp else 0.dp,
+        shape = RoundedCornerShape(26.dp),
         clip = false,
         spotColor = ColorWhite.copy(alpha = glowAlpha)
       )
@@ -914,240 +944,140 @@ fun SecondaryGlassButton(
   OutlinedButton(
     onClick = onClick,
     interactionSource = interactionSource,
-    shape = RoundedCornerShape(25.dp),
-    border = BorderStroke(1.2.dp, ColorWhite.copy(alpha = 0.15f)),
+    shape = RoundedCornerShape(26.dp),
+    border = BorderStroke(1.dp, ColorWhite.copy(alpha = 0.25f)),
     colors = ButtonDefaults.outlinedButtonColors(
       contentColor = ColorWhite,
-      containerColor = ColorWhite.copy(alpha = 0.05f) // Glass transparent container
+      containerColor = Color.Transparent
     ),
     modifier = modifier
-      .height(50.dp)
+      .height(52.dp)
       .graphicsLayer {
         scaleX = scale
         scaleY = scale
       }
   ) {
-    Text(
-      text = text,
-      color = ColorWhite,
-      fontSize = 14.sp,
-      fontWeight = FontWeight.Medium
-    )
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.Center
+    ) {
+      Icon(
+        imageVector = if (text.contains("Log In", ignoreCase = true)) Icons.Default.Login else Icons.Default.PersonAdd,
+        contentDescription = null,
+        tint = ColorWhite,
+        modifier = Modifier.size(18.dp)
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = text,
+        color = ColorWhite,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold
+      )
+    }
   }
 }
 
 @Composable
 fun DoodleBackground(modifier: Modifier = Modifier) {
-  val infiniteTransition = rememberInfiniteTransition(label = "floating_doodles")
-  
-  // Create slow waving coordinates for background doodles (3-8% opacity outlines)
-  val floatState1 by infiniteTransition.animateFloat(
-    initialValue = 0f,
-    targetValue = 360f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(18000, easing = LinearEasing),
-      repeatMode = RepeatMode.Restart
-    ),
-    label = "float_state_1"
-  )
-
-  val floatState2 by infiniteTransition.animateFloat(
-    initialValue = 0f,
-    targetValue = 360f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(24000, easing = LinearEasing),
-      repeatMode = RepeatMode.Restart
-    ),
-    label = "float_state_2"
-  )
-
   Canvas(
     modifier = modifier
-      .background(
-        Brush.verticalGradient(
-          colors = listOf(ColorPureBlack, ColorCharcoal)
-        )
-      )
+      .background(ColorPureBlack)
   ) {
-    // 5% Opacity monochrome white strokes
-    val color = ColorWhite.copy(alpha = 0.045f)
+    // 1. Top Right Large Sphere (Orb 1)
+    val orb1Radius = 320.dp.toPx()
+    val orb1Center = Offset(size.width * 1.05f, size.height * 0.1f)
     
-    // Wave translations
-    val cos1 = cos(Math.toRadians(floatState1.toDouble())).toFloat()
-    val sin1 = sin(Math.toRadians(floatState1.toDouble())).toFloat()
-    val cos2 = cos(Math.toRadians(floatState2.toDouble())).toFloat()
-    val sin2 = sin(Math.toRadians(floatState2.toDouble())).toFloat()
-
-    // Layer 1 displacements
-    val dX1 = cos1 * 12.dp.toPx()
-    val dY1 = sin1 * 12.dp.toPx()
-
-    // Layer 2 displacements
-    val dX2 = sin2 * 10.dp.toPx()
-    val dY2 = cos2 * 14.dp.toPx()
-
-    // Top Left sector
-    drawChatBubble(Offset(50.dp.toPx() + dX1, 90.dp.toPx() + dY1), Size(48.dp.toPx(), 36.dp.toPx()), color)
-    drawStar(Offset(120.dp.toPx() + dX1, 60.dp.toPx() + dY1), 12.dp.toPx(), color)
-    drawGhost(Offset(80.dp.toPx() + dX2, 200.dp.toPx() + dY2), 40.dp.toPx(), 48.dp.toPx(), color)
-    drawWiggle(Offset(30.dp.toPx() + dX1, 300.dp.toPx() + dY1), Offset(90.dp.toPx() + dX1, 340.dp.toPx() + dY1), color)
-
-    // Top Right sector
-    drawStar(Offset(size.width - 60.dp.toPx() + dX2, 80.dp.toPx() + dY2), 16.dp.toPx(), color)
-    drawChatBubble(Offset(size.width - 110.dp.toPx() + dX1, 160.dp.toPx() + dY1), Size(40.dp.toPx(), 30.dp.toPx()), color)
-    drawGhost(Offset(size.width - 70.dp.toPx() + dX1, 270.dp.toPx() + dY1), 35.dp.toPx(), 42.dp.toPx(), color)
-    drawWiggle(Offset(size.width - 130.dp.toPx() + dX2, 350.dp.toPx() + dY2), Offset(size.width - 50.dp.toPx() + dX2, 370.dp.toPx() + dY2), color)
-
-    // Mid Left/Right decorative items
-    drawArrow(Offset(35.dp.toPx() + dX1, 440.dp.toPx() + dY1), Offset(75.dp.toPx() + dX1, 410.dp.toPx() + dY1), color)
-    drawStar(Offset(size.width - 50.dp.toPx() + dX2, 460.dp.toPx() + dY2), 8.dp.toPx(), color)
-    drawChatBubble(Offset(30.dp.toPx() + dX2, 540.dp.toPx() + dY2), Size(32.dp.toPx(), 26.dp.toPx()), color)
-
-    // Bottom Left sector
-    drawGhost(Offset(60.dp.toPx() + dX1, size.height - 180.dp.toPx() + dY1), 44.dp.toPx(), 52.dp.toPx(), color)
-    drawStar(Offset(140.dp.toPx() + dX2, size.height - 110.dp.toPx() + dY2), 14.dp.toPx(), color)
-    drawWiggle(Offset(40.dp.toPx() + dX1, size.height - 80.dp.toPx() + dY1), Offset(90.dp.toPx() + dX1, size.height - 40.dp.toPx() + dY1), color)
-
-    // Bottom Right sector
-    drawChatBubble(Offset(size.width - 70.dp.toPx() + dX2, size.height - 180.dp.toPx() + dY2), Size(44.dp.toPx(), 34.dp.toPx()), color)
-    drawArrow(Offset(size.width - 120.dp.toPx() + dX1, size.height - 110.dp.toPx() + dY1), Offset(size.width - 70.dp.toPx() + dX1, size.height - 130.dp.toPx() + dY1), color)
-    drawGhost(Offset(size.width - 90.dp.toPx() + dX2, size.height - 70.dp.toPx() + dY2), 32.dp.toPx(), 38.dp.toPx(), color)
-    drawStar(Offset(size.width - 160.dp.toPx() + dX1, size.height - 40.dp.toPx() + dY1), 10.dp.toPx(), color)
-  }
-}
-
-// Doodle Drawing Canvas Helpers
-
-private fun DrawScope.drawChatBubble(center: Offset, size: Size, color: Color) {
-  val path = Path().apply {
-    addRoundRect(
-      RoundRect(
-        rect = Rect(
-          center.x - size.width / 2,
-          center.y - size.height / 2,
-          center.x + size.width / 2,
-          center.y + size.height / 2
+    // Draw the base dark gradient of the sphere
+    drawCircle(
+      brush = Brush.radialGradient(
+        colors = listOf(
+          Color(0xFF1E242B),
+          Color(0xFF07090C)
         ),
-        cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
-      )
+        center = orb1Center,
+        radius = orb1Radius
+      ),
+      center = orb1Center,
+      radius = orb1Radius
     )
-    moveTo(center.x - size.width / 4, center.y + size.height / 2)
-    lineTo(center.x - size.width / 3, center.y + size.height / 2 + 6.dp.toPx())
-    lineTo(center.x - size.width / 6, center.y + size.height / 2)
-  }
-  drawPath(
-    path = path,
-    color = color,
-    style = Stroke(width = 1.5.dp.toPx())
-  )
-}
-
-private fun DrawScope.drawStar(center: Offset, radius: Float, color: Color) {
-  val path = Path()
-  val points = 5
-  val doublePI = Math.PI * 2
-  val angleStep = doublePI / (points * 2)
-  
-  for (i in 0 until (points * 2)) {
-    val currentRadius = if (i % 2 == 0) radius else radius * 0.4f
-    val currentAngle = i * angleStep - Math.PI / 2.0
-    val x = center.x + currentRadius * cos(currentAngle).toFloat()
-    val y = center.y + currentRadius * sin(currentAngle).toFloat()
     
-    if (i == 0) {
-      path.moveTo(x, y)
-    } else {
-      path.lineTo(x, y)
-    }
-  }
-  path.close()
-  drawPath(
-    path = path,
-    color = color,
-    style = Stroke(width = 1.5.dp.toPx())
-  )
-}
-
-private fun DrawScope.drawGhost(center: Offset, width: Float, height: Float, color: Color) {
-  val path = Path().apply {
-    val left = center.x - width / 2
-    val right = center.x + width / 2
-    val top = center.y - height / 2
-    val bottom = center.y + height / 2
-    
-    arcTo(
-      rect = Rect(left, top, right, top + height * 0.8f),
-      startAngleDegrees = 180f,
-      sweepAngleDegrees = 180f,
-      forceMoveTo = true
+    // Draw a series of faint glow rings to create the premium glass reflection/crescent highlight
+    drawCircle(
+      brush = Brush.radialGradient(
+        colors = listOf(
+          Color.White.copy(alpha = 0.08f),
+          Color.Transparent
+        ),
+        center = Offset(orb1Center.x - orb1Radius * 0.7f, orb1Center.y + orb1Radius * 0.4f),
+        radius = orb1Radius * 0.8f
+      ),
+      center = orb1Center,
+      radius = orb1Radius
     )
-    lineTo(right, bottom - height * 0.15f)
     
-    val segment = width / 3f
-    quadraticTo(right - segment / 2f, bottom, right - segment, bottom - height * 0.15f)
-    quadraticTo(right - 1.5f * segment, bottom - height * 0.3f, right - 2f * segment, bottom - height * 0.15f)
-    quadraticTo(left + segment / 2f, bottom, left, bottom - height * 0.15f)
-    
-    close()
-  }
-  
-  drawPath(
-    path = path,
-    color = color,
-    style = Stroke(width = 1.5.dp.toPx())
-  )
-  
-  drawCircle(
-    color = color,
-    radius = 2.dp.toPx(),
-    center = Offset(center.x - width * 0.18f, center.y - height * 0.05f)
-  )
-  drawCircle(
-    color = color,
-    radius = 2.dp.toPx(),
-    center = Offset(center.x + width * 0.18f, center.y - height * 0.05f)
-  )
-}
+    // Fine crescent outline highlight facing the center card
+    drawCircle(
+      brush = Brush.linearGradient(
+        colors = listOf(
+          Color.White.copy(alpha = 0.4f),
+          Color.White.copy(alpha = 0.1f),
+          Color.Transparent
+        ),
+        start = Offset(orb1Center.x - orb1Radius, orb1Center.y + orb1Radius),
+        end = Offset(orb1Center.x + orb1Radius, orb1Center.y - orb1Radius)
+      ),
+      center = orb1Center,
+      radius = orb1Radius,
+      style = Stroke(width = 1.2.dp.toPx())
+    )
 
-private fun DrawScope.drawArrow(start: Offset, end: Offset, color: Color) {
-  drawLine(
-    color = color,
-    start = start,
-    end = end,
-    strokeWidth = 1.5.dp.toPx()
-  )
-  val dx = end.x - start.x
-  val dy = end.y - start.y
-  val length = kotlin.math.sqrt(dx * dx + dy * dy)
-  if (length > 0f) {
-    val ux = dx / length
-    val uy = dy / length
-    val headLen = 8.dp.toPx()
-    
-    val lx = end.x - headLen * ux + headLen * 0.5f * uy
-    val ly = end.y - headLen * uy - headLen * 0.5f * ux
-    val rx = end.x - headLen * ux - headLen * 0.5f * uy
-    val ry = end.y - headLen * uy + headLen * 0.5f * ux
-    
-    drawLine(color = color, start = end, end = Offset(lx, ly), strokeWidth = 1.5.dp.toPx())
-    drawLine(color = color, start = end, end = Offset(rx, ry), strokeWidth = 1.5.dp.toPx())
-  }
-}
+    // 2. Bottom Left Sphere (Orb 2)
+    val orb2Radius = 220.dp.toPx()
+    val orb2Center = Offset(size.width * -0.1f, size.height * 0.95f)
 
-private fun DrawScope.drawWiggle(start: Offset, end: Offset, color: Color) {
-  val path = Path().apply {
-    moveTo(start.x, start.y)
-    val cx1 = (start.x + end.x) / 2f
-    val cy1 = start.y - 12.dp.toPx()
-    val cx2 = (start.x + end.x) / 2f
-    val cy2 = end.y + 12.dp.toPx()
-    cubicTo(cx1, cy1, cx2, cy2, end.x, end.y)
+    drawCircle(
+      brush = Brush.radialGradient(
+        colors = listOf(
+          Color(0xFF1B2026),
+          Color(0xFF050608)
+        ),
+        center = orb2Center,
+        radius = orb2Radius
+      ),
+      center = orb2Center,
+      radius = orb2Radius
+    )
+
+    drawCircle(
+      brush = Brush.radialGradient(
+        colors = listOf(
+          Color.White.copy(alpha = 0.06f),
+          Color.Transparent
+        ),
+        center = Offset(orb2Center.x + orb2Radius * 0.6f, orb2Center.y - orb2Radius * 0.6f),
+        radius = orb2Radius * 0.8f
+      ),
+      center = orb2Center,
+      radius = orb2Radius
+    )
+
+    // Fine crescent outline highlight facing the center card
+    drawCircle(
+      brush = Brush.linearGradient(
+        colors = listOf(
+          Color.White.copy(alpha = 0.3f),
+          Color.White.copy(alpha = 0.05f),
+          Color.Transparent
+        ),
+        start = Offset(orb2Center.x + orb2Radius, orb2Center.y - orb2Radius),
+        end = Offset(orb2Center.x - orb2Radius, orb2Center.y + orb2Radius)
+      ),
+      center = orb2Center,
+      radius = orb2Radius,
+      style = Stroke(width = 1.0.dp.toPx())
+    )
   }
-  drawPath(
-    path = path,
-    color = color,
-    style = Stroke(width = 1.5.dp.toPx())
-  )
 }
 
 @Preview(showBackground = true)

@@ -22,6 +22,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        ndk {
+            abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
+        }
     }
 
     buildTypes {
@@ -69,6 +72,9 @@ dependencies {
   
   // Coil for image loading
   implementation("io.coil-kt:coil-compose:2.5.0")
+
+  // ExifInterface for image rotation correction
+  implementation("androidx.exifinterface:exifinterface:1.3.7")
 
   // Firebase
   implementation(platform(libs.firebase.bom))
