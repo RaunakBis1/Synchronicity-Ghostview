@@ -2538,7 +2538,10 @@ fun GhostViewCallsTab(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.SpaceBetween
             ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
+              Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
                 UserAvatar(
                   photoBase64 = user.photoBase64,
                   username = user.username,
@@ -2558,11 +2561,16 @@ fun GhostViewCallsTab(
                       modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Secure encrypted handshake call", color = Color(0xFF8E9AA4), fontSize = 11.sp)
+                    Text(
+                      text = "Secure encrypted handshake call",
+                      color = Color(0xFF8E9AA4),
+                      fontSize = 11.sp,
+                      maxLines = 1
+                    )
                   }
                 }
               }
-
+              Spacer(modifier = Modifier.width(12.dp))
               Box(
                 modifier = Modifier
                   .size(40.dp)
@@ -2579,28 +2587,6 @@ fun GhostViewCallsTab(
                   modifier = Modifier.size(20.dp)
                 )
               }
-              Spacer(modifier = Modifier.width(12.dp))
-              Column {
-                Text(user.username.replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Icon(
-                    imageVector = Icons.Default.Videocam, 
-                    contentDescription = "Videocam Icon",
-                    tint = Color(0xFF00E5FF),
-                    modifier = Modifier.size(14.dp)
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Secure encrypted handshake call", color = Color(0xFF8E9AA4), fontSize = 11.sp)
-                }
-              }
-            }
-            IconButton(onClick = { onTriggerCall(user.username, "video") }) {
-              Icon(
-                imageVector = Icons.Default.Videocam, 
-                contentDescription = "Establish Video Call",
-                tint = Color(0xFF00E5FF),
-                modifier = Modifier.size(22.dp)
-              )
             }
           }
         }
