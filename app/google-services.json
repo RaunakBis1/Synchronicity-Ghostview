@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "361136323393",
+    "project_id": "srijan-backend",
+    "storage_bucket": "srijan-backend.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:361136323393:android:c80ba27c75f354e3c33fc0",
+        "android_client_info": {
+          "package_name": "synchronicity.acm26"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVYzn0-1xG-OKYfbopARVX6z1xW_i-aro"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
