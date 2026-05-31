@@ -310,7 +310,8 @@ fun UserAvatar(
         contentDescription = "$username avatar",
         modifier = Modifier
           .size(size)
-          .clip(CircleShape),
+          .clip(CircleShape)
+          .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
         contentScale = ContentScale.Crop
       )
     } else {
@@ -332,12 +333,13 @@ private fun AvatarFallback(
     modifier = Modifier
       .size(size)
       .clip(CircleShape)
-      .background(avatarColor),
+      .background(Color(0xFF13171F))
+      .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
     contentAlignment = Alignment.Center
   ) {
     Text(
       text = username.take(2).uppercase(),
-      color = Color.Black,
+      color = Color.White,
       fontWeight = FontWeight.Bold,
       fontSize = textSize
     )
@@ -543,14 +545,14 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
     else -> Brush.verticalGradient(colors = listOf(Color(0xFF080C10), Color(0xFF10161D))) // Midnight Obsidian
   }
 
-  Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
+  Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
     Column(modifier = Modifier.fillMaxSize()) {
       
       // GhostView Styled Header Bar
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .background(Color(0xFF121B22))
+          .background(Color.Black)
           .statusBarsPadding()
           .padding(horizontal = 16.dp, vertical = 14.dp)
       ) {
@@ -562,12 +564,13 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
               modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF00E5FF)),
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF13171F))
+                .border(BorderStroke(1.dp, Color(0xFF33353D)), RoundedCornerShape(12.dp)),
               contentAlignment = Alignment.Center
             ) {
-              Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Logo", tint = Color.Black, modifier = Modifier.size(20.dp))
+              Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Logo", tint = Color.White, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column {
@@ -580,7 +583,7 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
               )
               if (hasJoined) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                  Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF00E5FF)))
+                  Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF8E9AA4)))
                   Spacer(modifier = Modifier.width(4.dp))
                   Text(
                     text = "Logged in as: @${nickname.lowercase()}",
@@ -597,22 +600,23 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           if (hasJoined) {
             Box(
               modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0x1A00E5FF))
-                .border(1.dp, Color(0x6600E5FF), RoundedCornerShape(12.dp))
+                .clip(CircleShape)
+                .background(Color(0xFF13171F))
+                .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
                 .clickable { securityCenterOpen = true }
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
               Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
               ) {
-                Icon(imageVector = Icons.Default.Security, contentDescription = "Security Status", tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                Icon(imageVector = Icons.Default.Security, contentDescription = "Security Status", tint = Color(0xFF8E9AA4), modifier = Modifier.size(14.dp))
                 Text(
                   text = "SECURE CHANNEL",
-                  color = Color(0xFF00E5FF),
+                  color = Color(0xFF8E9AA4),
                   fontSize = 10.sp,
-                  fontWeight = FontWeight.Bold
+                  fontWeight = FontWeight.Bold,
+                  letterSpacing = 0.5.sp
                 )
               }
             }
@@ -702,44 +706,88 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
 
       if (hasJoined) {
         // App Tab Selector Bar (Standard Naming)
-        Row(
+        Box(
           modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF121B22))
-            .padding(bottom = 12.dp)
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .clip(CircleShape)
+            .background(Color(0xEE0B0C0E))
+            .border(BorderStroke(1.dp, Color(0xFF242730)), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-          val tabConfigs = listOf(
-            Triple("Chats", Icons.Default.ChatBubble, 0),
-            Triple("Status", Icons.Default.Adjust, 1),
-            Triple("Calls", Icons.Default.Phone, 2),
-            Triple("Settings", Icons.Default.Settings, 3)
-          )
-          tabConfigs.forEach { (title, icon, idx) ->
-            val active = activeTab == idx
-            val indicatorColor by animateColorAsState(if (active) Color(0xFF00E5FF) else Color.Transparent, label = "")
-            Column(
-              modifier = Modifier
-                .weight(1f)
-                .clickable { activeTab = idx }
-                .padding(top = 0.dp, bottom = 8.dp),
-              horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-              Box(modifier = Modifier.height(3.dp).fillMaxWidth(0.6f).clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp)).background(indicatorColor))
-              Spacer(modifier = Modifier.height(8.dp))
-              Icon(
-                imageVector = icon, 
-                contentDescription = title,
-                tint = if (active) Color(0xFF00E5FF) else Color(0xFF8E9AA4),
-                modifier = Modifier.size(22.dp)
-              )
-              Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = title,
-                color = if (active) Color(0xFF00E5FF) else Color(0xFF8E9AA4),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-              )
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            val tabConfigs = listOf(
+              Triple("Chats", Icons.Default.ChatBubble, 0),
+              Triple("Status", Icons.Default.Adjust, 1),
+              Triple("Calls", Icons.Default.Phone, 2),
+              Triple("Settings", Icons.Default.Settings, 3)
+            )
+            tabConfigs.forEach { (title, icon, idx) ->
+              val active = activeTab == idx
+              
+              Box(
+                modifier = Modifier
+                  .weight(1f)
+                  .clip(CircleShape)
+                  .let {
+                    if (active) {
+                      it
+                        .background(Color(0x22FFFFFF))
+                        .border(
+                          BorderStroke(
+                            1.dp,
+                            Brush.linearGradient(
+                              colors = listOf(
+                                Color.White.copy(alpha = 0.2f),
+                                Color.White.copy(alpha = 0.02f)
+                              )
+                            )
+                          ),
+                          CircleShape
+                        )
+                    } else {
+                      it.clickable { activeTab = idx }
+                    }
+                  }
+                  .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+              ) {
+                Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.Center
+                ) {
+                  if (active) {
+                    Box(
+                      modifier = Modifier
+                        .size(width = 12.dp, height = 3.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                  } else {
+                    Spacer(modifier = Modifier.height(7.dp))
+                  }
+                  
+                  Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = if (active) Color.White else Color(0xFF6B7280),
+                    modifier = Modifier.size(20.dp)
+                  )
+                  Spacer(modifier = Modifier.height(2.dp))
+                  Text(
+                    text = title,
+                    color = if (active) Color.White else Color(0xFF6B7280),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                  )
+                }
+              }
             }
           }
         }
@@ -914,66 +962,104 @@ fun GhostViewChatsTab(
         Column(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF080C10))
+            .background(Color.Black)
         ) {
           Box(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(14.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .background(Color(0xFF121B22))
-              .padding(horizontal = 14.dp, vertical = 10.dp)
+              .padding(horizontal = 16.dp, vertical = 12.dp)
+              .clip(CircleShape)
+              .background(Color(0xFF13171F))
+              .padding(horizontal = 16.dp, vertical = 12.dp)
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(imageVector = Icons.Default.Search, contentDescription = "Search Chats", tint = Color(0xFF8E9AA4), modifier = Modifier.size(16.dp))
-              Spacer(modifier = Modifier.width(8.dp))
-              Text("Search chats or username handles", color = Color(0xFF8E9AA4), fontSize = 13.sp)
+              Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search Chats",
+                tint = Color(0xFF8E9AA4),
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text(
+                text = "Search chats or username handles",
+                color = Color(0xFF8E9AA4),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Normal
+              )
             }
           }
 
-          LazyColumn(modifier = Modifier.fillMaxSize()) {
+          LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+          ) {
             // Lobby card
             item {
-              val selected = activePartner == "group_lounge"
-              val itemBg = if (selected) Color(0xFF1C2C35) else Color.Transparent
-              Row(
+              Box(
                 modifier = Modifier
                   .fillMaxWidth()
-                  .background(itemBg)
+                  .clip(RoundedCornerShape(18.dp))
+                  .background(Color(0xCC13171F))
+                  .border(
+                    BorderStroke(
+                      1.dp,
+                      Brush.linearGradient(
+                        colors = listOf(
+                          Color.White.copy(alpha = 0.2f),
+                          Color.White.copy(alpha = 0.02f)
+                        )
+                      )
+                    ),
+                    RoundedCornerShape(18.dp)
+                  )
                   .clickable {
                     onPartnerSelected("group_lounge", "Global Lounge Chat")
                   }
-                  .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                  .padding(horizontal = 16.dp, vertical = 16.dp)
               ) {
-                Box(
-                  modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF00E5FF)),
-                  contentAlignment = Alignment.Center
+                Row(
+                  verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Icon(imageVector = Icons.Default.Group, contentDescription = "Lounge", tint = Color.Black, modifier = Modifier.size(24.dp))
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                  Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                  Box(
+                    modifier = Modifier
+                      .size(48.dp)
+                      .clip(CircleShape)
+                      .background(Color(0xFF13171F))
+                      .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
+                    contentAlignment = Alignment.Center
                   ) {
-                    Text("Global Lounge Chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("Online", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Icon(imageVector = Icons.Default.Group, contentDescription = "Lounge", tint = Color.White, modifier = Modifier.size(24.dp))
                   }
-                  Text(
-                    "Shared messaging tunnel connecting all online nodes.",
-                    color = Color(0xFF8E9AA4),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                  )
+                  Spacer(modifier = Modifier.width(16.dp))
+                  Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically
+                    ) {
+                      Text("Global Lounge Chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                      Box(
+                        modifier = Modifier
+                          .clip(CircleShape)
+                          .background(Color(0xFF13171F))
+                          .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
+                          .padding(horizontal = 10.dp, vertical = 4.dp)
+                      ) {
+                        Text("Online", color = Color(0xFF8E9AA4), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                      }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                      "Shared messaging tunnel connecting all online nodes.",
+                      color = Color(0xFF8E9AA4),
+                      fontSize = 12.sp,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
+                    )
+                  }
                 }
               }
-              HorizontalDivider(color = Color(0xFF121B22), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
             }
 
             // Active Chats from Firestore
@@ -1005,68 +1091,123 @@ fun GhostViewChatsTab(
               }
             } else {
               items(activeUsers) { user ->
-                val selected = activePartner == user.username
-                val itemBg = if (selected) Color(0xFF161F26) else Color.Transparent
                 val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
-                Row(
+                Box(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .background(itemBg)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xCC13171F))
+                    .border(
+                      BorderStroke(
+                        1.dp,
+                        Brush.linearGradient(
+                          colors = listOf(
+                            Color.White.copy(alpha = 0.2f),
+                            Color.White.copy(alpha = 0.02f)
+                          )
+                        )
+                      ),
+                      RoundedCornerShape(18.dp)
+                    )
                     .clickable {
                       onPartnerSelected(user.username, displayNameToShow)
                     }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                  verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
                 ) {
-                  UserAvatar(
-                    photoBase64 = user.photoBase64,
-                    username = user.username,
-                    avatarColor = Color(user.avatarColor),
-                    size = 46.dp,
-                    textSize = 15.sp
-                  )
-                  Spacer(modifier = Modifier.width(16.dp))
-                  Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                      modifier = Modifier.fillMaxWidth(),
-                      horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    UserAvatar(
+                      photoBase64 = user.photoBase64,
+                      username = user.username,
+                      avatarColor = Color(user.avatarColor),
+                      size = 48.dp,
+                      textSize = 15.sp
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                      Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                      ) {
+                        Text(
+                          text = displayNameToShow,
+                          color = Color.White,
+                          fontWeight = FontWeight.Bold,
+                          fontSize = 15.sp
+                        )
+                        Box(
+                          modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0xFF13171F))
+                            .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                          Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                          ) {
+                            Icon(
+                              imageVector = Icons.Default.Lock,
+                              contentDescription = "Encrypted",
+                              tint = Color(0xFF8E9AA4),
+                              modifier = Modifier.size(10.dp)
+                            )
+                            Text(
+                              text = "Encrypted",
+                              color = Color(0xFF8E9AA4),
+                              fontSize = 10.sp,
+                              fontWeight = FontWeight.Bold
+                            )
+                          }
+                        }
+                      }
+                      Spacer(modifier = Modifier.height(4.dp))
                       Text(
-                        text = displayNameToShow,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                      )
-                      Text(
-                        text = "Encrypted",
+                        text = user.bio,
                         color = Color(0xFF8E9AA4),
-                        fontSize = 10.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                       )
                     }
-                    Text(
-                      text = user.bio,
-                      color = Color(0xFF8E9AA4),
-                      fontSize = 12.sp,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis
-                    )
                   }
                 }
-                HorizontalDivider(color = Color(0xFF121B22), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
               }
             }
           }
         }
 
-        // FAB for New Contact
-        androidx.compose.material3.FloatingActionButton(
-          onClick = { showAddContactDialog = true },
+        // FAB for New Contact (Custom squircle glass style)
+        Box(
           modifier = Modifier
             .align(Alignment.BottomEnd)
-            .padding(24.dp),
-          containerColor = Color(0xFF00E5FF)
+            .padding(bottom = 100.dp, end = 24.dp)
+            .size(60.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xCC13171F))
+            .border(
+              BorderStroke(
+                1.dp,
+                Brush.linearGradient(
+                  colors = listOf(
+                    Color.White.copy(alpha = 0.25f),
+                    Color.White.copy(alpha = 0.05f)
+                  )
+                )
+              ),
+              RoundedCornerShape(16.dp)
+            )
+            .clickable { showAddContactDialog = true },
+          contentAlignment = Alignment.Center
         ) {
-          Icon(Icons.Default.Add, contentDescription = "Add Contact", tint = Color.Black)
+          Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = "Add Contact",
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
+          )
         }
       }
 
