@@ -1007,12 +1007,13 @@ fun GhostViewChatsTab(
               items(activeUsers) { user ->
                 val selected = activePartner == user.username
                 val itemBg = if (selected) Color(0xFF161F26) else Color.Transparent
+                val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
                 Row(
                   modifier = Modifier
                     .fillMaxWidth()
                     .background(itemBg)
                     .clickable {
-                      onPartnerSelected(user.username, user.username.replaceFirstChar { it.uppercase() })
+                      onPartnerSelected(user.username, displayNameToShow)
                     }
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                   verticalAlignment = Alignment.CenterVertically
@@ -1031,7 +1032,7 @@ fun GhostViewChatsTab(
                       horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                       Text(
-                        text = user.username.replaceFirstChar { it.uppercase() },
+                        text = displayNameToShow,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
@@ -1139,13 +1140,14 @@ fun GhostViewChatsTab(
                     .verticalScroll(rememberScrollState())
                 ) {
                   searchResults.forEach { user ->
+                    val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
                     Row(
                       modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF1C2C35))
                         .clickable {
-                          onPartnerSelected(user.username, user.username.replaceFirstChar { it.uppercase() })
+                          onPartnerSelected(user.username, displayNameToShow)
                           showAddContactDialog = false
                           contactQuery = ""
                           searchResults = emptyList()
@@ -1163,7 +1165,7 @@ fun GhostViewChatsTab(
                       Spacer(modifier = Modifier.width(12.dp))
                       Column(modifier = Modifier.weight(1f)) {
                         Text(
-                          text = user.username.replaceFirstChar { it.uppercase() },
+                          text = displayNameToShow,
                           color = Color.White,
                           fontWeight = FontWeight.Bold,
                           fontSize = 14.sp
@@ -1253,7 +1255,8 @@ fun GhostViewChatsTab(
           onReact = onReact,
           onTriggerCall = onTriggerCall,
           onBackClicked = { onPartnerSelected("", "") },
-          firestoreService = firestoreService
+          firestoreService = firestoreService,
+          activeUsers = activeUsers
         )
       }
     }
@@ -1276,7 +1279,8 @@ fun ChatWindow(
   onReact: (String, String) -> Unit,
   onTriggerCall: (String) -> Unit,
   onBackClicked: () -> Unit,
-  firestoreService: FirestoreChatService?
+  firestoreService: FirestoreChatService?,
+  activeUsers: List<WhatsAppUser> = emptyList()
 ) {
   val coroutineScope = rememberCoroutineScope()
   val listState = rememberLazyListState()
@@ -1448,7 +1452,8 @@ fun ChatWindow(
               self = msg.sender.lowercase().trim() == nickname.lowercase().trim(),
               onVote = { opt -> onVoteCast(msg.id, opt) },
               onReact = { emoji -> onReact(msg.id, emoji) },
-              onDelete = { firestoreService?.deleteMessage(msg.id) }
+              onDelete = { firestoreService?.deleteMessage(msg.id) },
+              activeUsers = activeUsers
             )
           }
         }
@@ -1748,7 +1753,8 @@ fun GhostViewBubble(
   self: Boolean,
   onVote: (Int) -> Unit,
   onReact: (String) -> Unit,
-  onDelete: () -> Unit
+  onDelete: () -> Unit,
+  activeUsers: List<WhatsAppUser> = emptyList()
 ) {
   val align = if (self) Alignment.End else Alignment.Start
   val bubbleBg = if (self) Color(0xFF053E3F) else Color(0xFF161F26)
@@ -1798,8 +1804,14 @@ fun GhostViewBubble(
           .padding(10.dp)
       ) {
         if (!self) {
+          val senderUser = activeUsers.find { it.username.lowercase().trim() == msg.sender.lowercase().trim() }
+          val displayNameToShow = if (senderUser != null && !senderUser.displayName.isNullOrBlank()) {
+            senderUser.displayName
+          } else {
+            msg.sender.replaceFirstChar { it.uppercase() }
+          }
           Text(
-            text = msg.sender.replaceFirstChar { it.uppercase() },
+            text = displayNameToShow,
             color = Color(0xFF00E5FF),
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
@@ -2285,7 +2297,8 @@ fun GhostViewUpdatesTab(
               }
             }
             Spacer(modifier = Modifier.height(6.dp))
-            Text(user.username.replaceFirstChar { it.uppercase() }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
+            Text(displayNameToShow, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text("Recent", color = Color(0xFF8E9AA4), fontSize = 10.sp)
           }
         }
@@ -2388,7 +2401,8 @@ fun GhostViewCallsTab(
               }
               Spacer(modifier = Modifier.width(12.dp))
               Column {
-                Text(user.username.replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
+                Text(displayNameToShow, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                   Icon(
                     imageVector = Icons.Default.Videocam, 
@@ -2463,6 +2477,7 @@ fun GhostViewSettingsTab(
             editBio = doc.getString("bio") ?: "Hey there! I am using GhostView."
             editStatusText = doc.getString("statusText") ?: "Available"
             profilePhotoBase64 = doc.getString("photoBase64")
+            editDisplayName = doc.getString("displayName") ?: username.replaceFirstChar { it.uppercase() }
           }
       } catch (e: Exception) {}
     }
@@ -2731,31 +2746,25 @@ fun GhostViewSettingsTab(
           Button(
             onClick = {
               isSavingProfile = true
-              // Update Firebase Auth display name
-              val fbAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
-              fbAuth.currentUser?.updateProfile(userProfileChangeRequest {
-                displayName = editDisplayName.trim()
-              })?.addOnCompleteListener {
-                // Update Firestore bio + status + name
-                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                val docRef = db.collection("ghostview_users").document(username.lowercase().trim())
-                val updates = mutableMapOf<String, Any>(
-                  "bio" to editBio.trim(),
-                  "statusText" to editStatusText.trim(),
-                  "lastSeen" to System.currentTimeMillis()
-                )
-                docRef.update(updates)
-                  .addOnSuccessListener {
-                    isSavingProfile = false
-                    onNicknameChanged(editDisplayName.trim())
-                    showEditProfileDialog = false
-                    Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
-                  }
-                  .addOnFailureListener {
-                    isSavingProfile = false
-                    Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
-                  }
-              }
+              // Update Firestore bio + status + name
+              val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+              val docRef = db.collection("ghostview_users").document(username.lowercase().trim())
+              val updates = mutableMapOf<String, Any>(
+                "displayName" to editDisplayName.trim(),
+                "bio" to editBio.trim(),
+                "statusText" to editStatusText.trim(),
+                "lastSeen" to System.currentTimeMillis()
+              )
+              docRef.update(updates)
+                .addOnSuccessListener {
+                  isSavingProfile = false
+                  showEditProfileDialog = false
+                  Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                }
+                .addOnFailureListener {
+                  isSavingProfile = false
+                  Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
+                }
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
             modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -2832,7 +2841,7 @@ fun GhostViewSettingsTab(
 
           Spacer(modifier = Modifier.width(16.dp))
           Column(modifier = Modifier.weight(1f)) {
-            Text(username.replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(editDisplayName.ifEmpty { username.replaceFirstChar { it.uppercase() } }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(editBio.ifEmpty { "Hey there! I am using GhostView." }, color = Color(0xFF8E9AA4), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2846,7 +2855,6 @@ fun GhostViewSettingsTab(
         // Edit Profile Button
         Button(
           onClick = {
-            editDisplayName = username
             showEditProfileDialog = true
           },
           colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A00E5FF)),
