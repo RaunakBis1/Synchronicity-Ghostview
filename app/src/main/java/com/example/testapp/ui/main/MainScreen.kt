@@ -8,6 +8,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.util.Log
+import okhttp3.*
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+
+import android.os.Handler
+import android.os.Looper
+
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -76,6 +85,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import coil.compose.AsyncImage
+
+import okhttp3.MultipartBody
+import okhttp3.Request
+import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.security.MessageDigest
 import com.example.testapp.data.DefaultDataRepository
 import com.example.testapp.data.FirestoreChatService
 import com.example.testapp.data.WhatsAppMessage
@@ -89,7 +106,6 @@ import com.google.firebase.auth.userProfileChangeRequest
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -338,7 +354,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
     locationName: String? = null,
     fileName: String? = null,
     fileSize: String? = null,
-    voiceDurationSec: Int = 0
+    voiceDurationSec: Int = 0,
+    isOneTime: Boolean = false
   ) {
     val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
     val newMsg = WhatsAppMessage(
@@ -360,7 +377,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
       fileSize = fileSize,
       voiceDurationSec = voiceDurationSec,
       reactions = emptyMap(),
-      disappearing = ephemeralChatEnabled
+      disappearing = ephemeralChatEnabled,
+      isOneTime = isOneTime
     )
 
     if (firestoreService != null && currentChatId.isNotEmpty()) {
@@ -498,8 +516,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
                   activeChatPartnerName = name
                 },
                 onSendMessage = { handleSendMessage(it) },
-                onSendRichMessage = { type, mUrl, q, o, lat, lng, lName, fName, fSize, dur ->
-                  handleSendMessage("", type, mUrl, q, o, lat, lng, lName, fName, fSize, dur)
+                onSendRichMessage = { type, mUrl, q, o, lat, lng, lName, fName, fSize, dur, isOneTime ->
+                  handleSendMessage("", type, mUrl, q, o, lat, lng, lName, fName, fSize, dur, isOneTime)
                 },
                 onVoteCast = { msgId, optIdx -> handleCastVote(msgId, optIdx) },
                 onReact = { msgId, emoji -> handleAddReaction(msgId, emoji) },
@@ -742,7 +760,7 @@ fun GhostViewChatsTab(
   doodleMode: Boolean,
   onPartnerSelected: (String, String) -> Unit,
   onSendMessage: (String) -> Unit,
-  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int) -> Unit,
+  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int, Boolean) -> Unit,
   onVoteCast: (String, Int) -> Unit,
   onReact: (String, String) -> Unit,
   onTriggerCall: (String) -> Unit,
@@ -1129,7 +1147,7 @@ fun ChatWindow(
   chatBg: Brush,
   doodleMode: Boolean,
   onSendMessage: (String) -> Unit,
-  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int) -> Unit,
+  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int, Boolean) -> Unit,
   onVoteCast: (String, Int) -> Unit,
   onReact: (String, String) -> Unit,
   onTriggerCall: (String) -> Unit,
@@ -1152,6 +1170,9 @@ fun ChatWindow(
   val context = LocalContext.current
 
   // Real Activity Result Contracts to support ACTUAL media sharing!
+  var pendingImageBase64 by remember { mutableStateOf<String?>(null) }
+  var pendingImageFileName by remember { mutableStateOf<String?>(null) }
+
   val imagePickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.GetContent()
   ) { uri ->
@@ -1159,7 +1180,8 @@ fun ChatWindow(
       coroutineScope.launch {
         val (base64, fileName) = uriToBase64(context, uri)
         if (base64.isNotEmpty()) {
-          onSendRichMessage("image", base64, null, emptyList(), 0.0, 0.0, null, fileName, null, 0)
+          pendingImageBase64 = base64
+          pendingImageFileName = fileName
         }
       }
     }
@@ -1172,7 +1194,7 @@ fun ChatWindow(
       coroutineScope.launch {
         val base64 = bitmapToBase64(bitmap)
         if (base64.isNotEmpty()) {
-          onSendRichMessage("image", base64, null, emptyList(), 0.0, 0.0, null, "CameraPhoto.jpg", null, 0)
+          onSendRichMessage("image", base64, null, emptyList(), 0.0, 0.0, null, "CameraPhoto.jpg", null, 0, false)
         }
       }
     }
@@ -1185,7 +1207,7 @@ fun ChatWindow(
       coroutineScope.launch {
         val (base64, fileName) = uriToBase64(context, uri)
         if (base64.isNotEmpty()) {
-          onSendRichMessage("document", base64, null, emptyList(), 0.0, 0.0, null, fileName, "145 KB", 0)
+          onSendRichMessage("document", base64, null, emptyList(), 0.0, 0.0, null, fileName, "145 KB", 0, false)
         }
       }
     }
@@ -1309,7 +1331,16 @@ fun ChatWindow(
               self = msg.sender.lowercase().trim() == nickname.lowercase().trim(),
               onVote = { opt -> onVoteCast(msg.id, opt) },
               onReact = { emoji -> onReact(msg.id, emoji) },
-              onDelete = { firestoreService?.deleteMessage(msg.id) }
+              onDelete = {
+                if (firestoreService != null) {
+                  firestoreService.deleteMessage(msg.id)
+                }
+              },
+              onMarkViewed = {
+                if (firestoreService != null) {
+                  firestoreService.markMessageAsViewed(msg.id)
+                }
+              }
             )
           }
         }
@@ -1349,11 +1380,11 @@ fun ChatWindow(
           }
           Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             AttachmentItemIcon(Icons.Default.Mic, "Audio", Color(0xFFFF9800)) {
-              onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, 24)
+              onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, 24, false)
               attachmentOpen = false
             }
             AttachmentItemIcon(Icons.Default.Place, "Location", Color(0xFF20C0F0)) {
-              onSendRichMessage("location", null, null, emptyList(), 12.9716, 77.5946, "Core Coordinates", null, null, 0)
+              onSendRichMessage("location", null, null, emptyList(), 12.9716, 77.5946, "Core Coordinates", null, null, 0, false)
               attachmentOpen = false
             }
             AttachmentItemIcon(Icons.Default.BarChart, "Poll", Color(0xFF00BFA5)) {
@@ -1443,7 +1474,7 @@ fun ChatWindow(
               } else {
                 if (isRecordingVoice) {
                   isRecordingVoice = false
-                  onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, voiceRecordingSec)
+                  onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, voiceRecordingSec, false)
                 } else {
                   isRecordingVoice = true
                 }
@@ -1480,72 +1511,41 @@ fun ChatWindow(
         contentAlignment = Alignment.Center
       ) {
         Card(
-          shape = RoundedCornerShape(20.dp),
+          shape = RoundedCornerShape(16.dp),
           colors = CardDefaults.cardColors(containerColor = Color(0xFF161F26)),
-          modifier = Modifier
-            .width(320.dp)
-            .padding(16.dp)
-            .clickable(enabled = false) {}
+          modifier = Modifier.padding(24.dp).clickable(enabled = false) {}
         ) {
-          Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-          ) {
-            Text("Create Poll", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Create Poll", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             OutlinedTextField(
-              value = question,
-              onValueChange = { question = it },
-              label = { Text("Question", color = Color(0xFF8E9AA4)) },
+              value = question, onValueChange = { question = it }, label = { Text("Question") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt1,
-              onValueChange = { opt1 = it },
-              label = { Text("Option 1", color = Color(0xFF8E9AA4)) },
+              value = opt1, onValueChange = { opt1 = it }, label = { Text("Option 1") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt2,
-              onValueChange = { opt2 = it },
-              label = { Text("Option 2", color = Color(0xFF8E9AA4)) },
+              value = opt2, onValueChange = { opt2 = it }, label = { Text("Option 2") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt3,
-              onValueChange = { opt3 = it },
-              label = { Text("Option 3 (Optional)", color = Color(0xFF8E9AA4)) },
+              value = opt3, onValueChange = { opt3 = it }, label = { Text("Option 3 (Optional)") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
@@ -1562,12 +1562,52 @@ fun ChatWindow(
                 onClick = {
                   if (question.isNotEmpty() && opt1.isNotEmpty() && opt2.isNotEmpty()) {
                     val opts = listOf(opt1.trim(), opt2.trim()) + if (opt3.isNotEmpty()) listOf(opt3.trim()) else emptyList()
-                    onSendRichMessage("poll", null, question.trim(), opts, 0.0, 0.0, null, null, null, 0)
+                    onSendRichMessage("poll", null, question.trim(), opts, 0.0, 0.0, null, null, null, 0, false)
                     pollDialogOpen = false
                   }
                 }
               ) {
                 Text("CREATE", color = Color(0xFF00E5FF))
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (pendingImageBase64 != null) {
+      androidx.compose.ui.window.Dialog(onDismissRequest = { pendingImageBase64 = null }) {
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(containerColor = Color(0xFF161F26))
+        ) {
+          Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Send Photo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Base64Image(pendingImageBase64!!, modifier = Modifier.size(220.dp).clip(RoundedCornerShape(8.dp)))
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+              Button(
+                onClick = { 
+                  onSendRichMessage("image", pendingImageBase64, null, emptyList(), 0.0, 0.0, null, pendingImageFileName, null, 0, false)
+                  pendingImageBase64 = null
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+              ) {
+                Text("Normal", color = Color.Black, maxLines = 1, softWrap = false)
+              }
+              Button(
+                onClick = { 
+                  onSendRichMessage("image", pendingImageBase64, null, emptyList(), 0.0, 0.0, null, pendingImageFileName, null, 0, true)
+                  pendingImageBase64 = null
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF24303B))
+              ) {
+                Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("View Once", color = Color.White, maxLines = 1, softWrap = false)
               }
             }
           }
@@ -1609,7 +1649,8 @@ fun GhostViewBubble(
   self: Boolean,
   onVote: (Int) -> Unit,
   onReact: (String) -> Unit,
-  onDelete: () -> Unit
+  onDelete: () -> Unit,
+  onMarkViewed: () -> Unit = {}
 ) {
   val align = if (self) Alignment.End else Alignment.Start
   val bubbleBg = if (self) Color(0xFF053E3F) else Color(0xFF161F26)
@@ -1683,7 +1724,7 @@ fun GhostViewBubble(
             GhostViewDocumentBubble(msg)
           }
           "image" -> {
-            GhostViewImageBubble(msg)
+            GhostViewImageBubble(msg, onDelete, onMarkViewed)
           }
           else -> {
             Text(
@@ -2002,16 +2043,94 @@ fun GhostViewDocumentBubble(
 // GALLERY MEDIA COMPOSABLE CARD WITH ACTUAL PHOTO RENDERING
 @Composable
 fun GhostViewImageBubble(
-  msg: WhatsAppMessage
+  msg: WhatsAppMessage,
+  onDelete: () -> Unit = {},
+  onMarkViewed: () -> Unit = {}
 ) {
-  if (!msg.mediaUrl.isNullOrEmpty()) {
-    Base64Image(
-      base64Str = msg.mediaUrl,
+  var showSecureViewer by remember { mutableStateOf(false) }
+  val coroutineScope = rememberCoroutineScope()
+
+  if (showSecureViewer && !msg.mediaUrl.isNullOrEmpty()) {
+    GhostViewSecureViewer(
+      imageUrl = msg.mediaUrl,
+      onClose = {
+        showSecureViewer = false
+        onMarkViewed()
+      }
+    )
+  }
+
+  if (msg.isOneTime) {
+    Box(
       modifier = Modifier
         .fillMaxWidth()
         .height(180.dp)
         .clip(RoundedCornerShape(8.dp))
-    )
+        .background(Color(0xFF24303B))
+        .clickable(enabled = !msg.isViewed) {
+          showSecureViewer = true
+        },
+      contentAlignment = Alignment.Center
+    ) {
+      Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (msg.isViewed) {
+          Icon(Icons.Default.CheckCircle, contentDescription = "Opened", tint = Color.Gray, modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("Opened", color = Color.Gray, fontWeight = FontWeight.Bold)
+        } else {
+          Icon(Icons.Default.Photo, contentDescription = "Photo", tint = Color(0xFF00E5FF), modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("Photo", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+        }
+      }
+    }
+  } else if (!msg.mediaUrl.isNullOrEmpty()) {
+    if (msg.disappearing && !msg.isViewed) {
+       Box(
+         modifier = Modifier
+           .fillMaxWidth()
+           .height(180.dp)
+           .clip(RoundedCornerShape(8.dp))
+           .background(Color(0xFF24303B)),
+         contentAlignment = Alignment.Center
+       ) {
+         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+           Icon(Icons.Default.VisibilityOff, contentDescription = "Hidden", tint = Color(0xFFEF4444), modifier = Modifier.size(32.dp))
+           Spacer(modifier = Modifier.height(8.dp))
+           Button(
+             onClick = { 
+                 onMarkViewed()
+                 coroutineScope.launch {
+                     kotlinx.coroutines.delay(10000)
+                     onDelete()
+                 }
+             },
+             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+           ) {
+             Text("Tap to View (10s)", color = Color.Black, fontWeight = FontWeight.Bold)
+           }
+         }
+       }
+    } else {
+       if (msg.mediaUrl.startsWith("http")) {
+           AsyncImage(
+             model = msg.mediaUrl,
+             contentDescription = "Cloudinary Image",
+             modifier = Modifier
+               .fillMaxWidth()
+               .height(180.dp)
+               .clip(RoundedCornerShape(8.dp))
+           )
+       } else {
+           Base64Image(
+             base64Str = msg.mediaUrl,
+             modifier = Modifier
+               .fillMaxWidth()
+               .height(180.dp)
+               .clip(RoundedCornerShape(8.dp))
+           )
+       }
+    }
   } else {
     Box(
       modifier = Modifier
@@ -2918,6 +3037,9 @@ fun GhostViewSecureViewer(
     if (!hasCameraPermission) {
       permissionLauncher.launch(Manifest.permission.CAMERA)
     }
+    // Automatically close after 10 seconds to ensure they don't see it forever
+    kotlinx.coroutines.delay(10000)
+    onClose()
   }
 
   Dialog(
@@ -2953,27 +3075,76 @@ fun GhostViewSecureViewer(
                 .build()
               val detector = FaceDetection.getClient(options)
 
+              var isUploading = false
+              val client = OkHttpClient()
+              
               val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
                   it.setAnalyzer(executor) { imageProxy ->
+                    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
                     val mediaImage = imageProxy.image
                     if (mediaImage != null) {
-                      val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                      detector.process(image)
-                        .addOnSuccessListener { faces ->
-                          // Anti-Snoop: Blur if 2 or more faces are looking at the screen
-                          isSnooperDetected = faces.size >= 2
-                        }
-                        .addOnFailureListener { e ->
-                          Log.e("GhostView", "Face detection failed", e)
-                        }
-                        .addOnCompleteListener {
-                          imageProxy.close()
-                        }
+                        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                        detector.process(image)
+                            .addOnSuccessListener { faces ->
+                                // Trigger Snooper Warning if more than 1 face is detected!
+                                if (faces.size > 1) {
+                                    Handler(Looper.getMainLooper()).post {
+                                        isSnooperDetected = true
+                                    }
+                                } else {
+                                    // If no extra faces, fallback to Python API for object/phone detection
+                                    if (!isUploading) {
+                                        isUploading = true
+                                        try {
+                                            val bitmap = imageProxy.toBitmap()
+                                            val stream = ByteArrayOutputStream()
+                                            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                                            val byteArray = stream.toByteArray()
+                                            
+                                            val requestBody = MultipartBody.Builder()
+                                                .setType(MultipartBody.FORM)
+                                                .addFormDataPart("image", "frame.jpg", byteArray.toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                                                .build()
+                                                
+                                            val request = Request.Builder()
+                                                .url("http://172.18.6.174:5000/detect")
+                                                .post(requestBody)
+                                                .build()
+                                                
+                                            client.newCall(request).enqueue(object : Callback {
+                                                override fun onFailure(call: Call, e: IOException) {
+                                                    isUploading = false
+                                                }
+                                                override fun onResponse(call: Call, response: Response) {
+                                                    response.body?.string()?.let { jsonString ->
+                                                        try {
+                                                            val json = JSONObject(jsonString)
+                                                            val blackout = json.optBoolean("blackout", false)
+                                                            Handler(Looper.getMainLooper()).post {
+                                                                isSnooperDetected = blackout
+                                                            }
+                                                        } catch(e: Exception) { }
+                                                    }
+                                                    isUploading = false
+                                                }
+                                            })
+                                        } catch(e: Exception) {
+                                            isUploading = false
+                                        }
+                                    } else {
+                                        // Clear warning if no extra faces and API is busy
+                                        // We let the API callback handle clearing if needed.
+                                    }
+                                }
+                            }
+                            .addOnCompleteListener {
+                                imageProxy.close()
+                            }
                     } else {
-                      imageProxy.close()
+                        imageProxy.close()
                     }
                   }
                 }
@@ -2997,27 +3168,46 @@ fun GhostViewSecureViewer(
       }
 
       // The secure image
-      AsyncImage(
-        model = imageUrl,
-        contentDescription = "Secure Photo",
-        modifier = Modifier
-          .fillMaxSize()
-          .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
-      )
+      if (imageUrl.startsWith("http")) {
+        AsyncImage(
+          model = imageUrl,
+          contentDescription = "Secure Photo",
+          modifier = Modifier
+            .fillMaxSize()
+            .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
+        )
+      } else {
+        Base64Image(
+          base64Str = imageUrl,
+          modifier = Modifier
+            .fillMaxSize()
+            .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
+        )
+      }
 
       if (isSnooperDetected) {
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color.Red.copy(alpha = 0.5f)),
+            .background(Color.Black),
           contentAlignment = Alignment.Center
         ) {
-          Text(
-            text = "⚠️ SNOOPER DETECTED ⚠️",
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 24.sp
-          )
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.VisibilityOff, contentDescription = "Hidden", tint = Color.Red, modifier = Modifier.size(64.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              text = "⚠️ SNOOPER DETECTED ⚠️",
+              color = Color.Red,
+              fontWeight = FontWeight.Bold,
+              fontSize = 24.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+              text = "Image hidden for your privacy.",
+              color = Color.White,
+              fontSize = 14.sp
+            )
+          }
         }
       }
 
