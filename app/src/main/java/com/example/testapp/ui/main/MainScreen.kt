@@ -76,6 +76,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -227,6 +229,67 @@ fun Base64Image(base64Str: String, modifier: Modifier = Modifier) {
     ) {
       Icon(imageVector = Icons.Default.BrokenImage, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(32.dp))
     }
+  }
+}
+
+// Reusable avatar that shows profile photo or fallback initials
+@Composable
+fun UserAvatar(
+  photoBase64: String? = null,
+  username: String,
+  avatarColor: Color = Color(0xFF1E293B),
+  size: Dp = 46.dp,
+  textSize: TextUnit = 15.sp
+) {
+  if (!photoBase64.isNullOrEmpty()) {
+    val imageBitmap = remember(photoBase64) {
+      try {
+        val decodedBytes = Base64.decode(photoBase64, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+        bitmap?.asImageBitmap()
+      } catch (e: Exception) {
+        null
+      }
+    }
+    if (imageBitmap != null) {
+      Image(
+        bitmap = imageBitmap,
+        contentDescription = "$username avatar",
+        modifier = Modifier
+          .size(size)
+          .clip(CircleShape)
+          .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
+        contentScale = ContentScale.Crop
+      )
+    } else {
+      AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
+    }
+  } else {
+    AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
+  }
+}
+
+@Composable
+private fun AvatarFallback(
+  username: String,
+  avatarColor: Color,
+  size: Dp,
+  textSize: TextUnit
+) {
+  Box(
+    modifier = Modifier
+      .size(size)
+      .clip(CircleShape)
+      .background(Color(0xFF13171F))
+      .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
+    contentAlignment = Alignment.Center
+  ) {
+    Text(
+      text = username.take(2).uppercase(),
+      color = Color.White,
+      fontWeight = FontWeight.Bold,
+      fontSize = textSize
+    )
   }
 }
 
@@ -1202,10 +1265,10 @@ fun ChatWindow(
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val (base64, fileName) = uriToBase64(context, uri)
-        if (base64.isNotEmpty()) {
-          pendingImageBase64 = base64
-          pendingImageFileName = fileName
+        val result = uriToBase64(context, uri)
+        if (result.first.isNotEmpty()) {
+          pendingImageBase64 = result.first
+          pendingImageFileName = result.second
         }
       }
     }
@@ -1229,9 +1292,9 @@ fun ChatWindow(
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val (base64, fileName) = uriToBase64(context, uri)
-        if (base64.isNotEmpty()) {
-          onSendRichMessage("document", base64, null, emptyList(), 0.0, 0.0, null, fileName, "145 KB", 0, false)
+        val result = uriToBase64(context, uri)
+        if (result.first.isNotEmpty()) {
+          onSendRichMessage("document", result.first, null, emptyList(), 0.0, 0.0, null, result.second, "145 KB", 0, false)
         }
       }
     }
@@ -2597,10 +2660,10 @@ fun GhostViewSettingsTab(
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val (base64, _) = uriToBase64(context, uri)
-        if (base64.isNotEmpty()) {
-          profilePhotoBase64 = base64
-          firestoreService?.updateUserProfile(username = username, newPhotoBase64 = base64)
+        val result = uriToBase64(context, uri)
+        if (result.first.isNotEmpty()) {
+          profilePhotoBase64 = result.first
+          firestoreService?.updateUserProfile(username = username, newPhotoBase64 = result.first)
           Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
         }
       }
