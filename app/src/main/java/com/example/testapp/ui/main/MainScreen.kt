@@ -3023,6 +3023,7 @@ fun GhostViewSecureViewer(
   val context = LocalContext.current
   val lifecycleOwner = LocalLifecycleOwner.current
   var isSnooperDetected by remember { mutableStateOf(false) }
+  var snooperWarningText by remember { mutableStateOf("⚠️ SNOOPER DETECTED ⚠️") }
   var hasCameraPermission by remember { 
     mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) 
   }
@@ -3123,7 +3124,13 @@ fun GhostViewSecureViewer(
                                                         try {
                                                             val json = JSONObject(jsonString)
                                                             val blackout = json.optBoolean("blackout", false)
+                                                            val reason = json.optString("reason", "")
                                                             Handler(Looper.getMainLooper()).post {
+                                                                if (reason == "phone_detected") {
+                                                                    snooperWarningText = "⚠️ PHONE DETECTED ⚠️"
+                                                                } else {
+                                                                    snooperWarningText = "⚠️ SNOOPER DETECTED ⚠️"
+                                                                }
                                                                 isSnooperDetected = blackout
                                                             }
                                                         } catch(e: Exception) { }
@@ -3196,7 +3203,7 @@ fun GhostViewSecureViewer(
             Icon(Icons.Default.VisibilityOff, contentDescription = "Hidden", tint = Color.Red, modifier = Modifier.size(64.dp))
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-              text = "⚠️ SNOOPER DETECTED ⚠️",
+              text = snooperWarningText,
               color = Color.Red,
               fontWeight = FontWeight.Bold,
               fontSize = 24.sp
@@ -3224,3 +3231,4 @@ fun GhostViewSecureViewer(
     }
   }
 }
+
