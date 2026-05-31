@@ -670,9 +670,6 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
               )
             }
             1 -> {
-              GhostViewUpdatesTab(activeUsers = activeUsersList)
-            }
-            2 -> {
               GhostViewCallsTab(
                 activeUsers = activeUsersList,
                 onTriggerCall = { name, type ->
@@ -682,7 +679,7 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
                 }
               )
             }
-            3 -> {
+            2 -> {
               GhostViewSettingsTab(
                 username = nickname,
                 wallpaperIndex = wallpaperIndex,
@@ -723,9 +720,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           ) {
             val tabConfigs = listOf(
               Triple("Chats", Icons.Default.ChatBubble, 0),
-              Triple("Status", Icons.Default.Adjust, 1),
-              Triple("Calls", Icons.Default.Phone, 2),
-              Triple("Settings", Icons.Default.Settings, 3)
+              Triple("Calls", Icons.Default.Phone, 1),
+              Triple("Settings", Icons.Default.Settings, 2)
             )
             tabConfigs.forEach { (title, icon, idx) ->
               val active = activeTab == idx
@@ -964,10 +960,131 @@ fun GhostViewChatsTab(
             .fillMaxSize()
             .background(Color.Black)
         ) {
+          // Status Feeds on Top (Recent Status Stories)
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(top = 16.dp, bottom = 4.dp)
+          ) {
+            Text(
+              text = "Recent Status Stories",
+              color = Color.White,
+              fontWeight = FontWeight.Bold,
+              fontSize = 15.sp,
+              modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+            )
+
+            LazyRow(
+              horizontalArrangement = Arrangement.spacedBy(16.dp),
+              contentPadding = PaddingValues(horizontal = 16.dp)
+            ) {
+              item {
+                Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier.width(68.dp)
+                ) {
+                  Box(
+                    modifier = Modifier.size(62.dp),
+                    contentAlignment = Alignment.Center
+                  ) {
+                    Box(
+                      modifier = Modifier
+                        .size(62.dp)
+                        .drawBehind {
+                          drawCircle(
+                            color = Color(0xFF3A3F4B),
+                            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(25f, 10f), 0f))
+                          )
+                        }
+                    )
+                    Box(
+                      modifier = Modifier
+                        .size(50.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF13171F))
+                        .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
+                      contentAlignment = Alignment.Center
+                    ) {
+                      Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add status",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                      )
+                    }
+                  }
+                  Spacer(modifier = Modifier.height(6.dp))
+                  Text(
+                    text = "My Status",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
+                  Text(
+                    text = "Tap to upload",
+                    color = Color(0xFF8E9AA4),
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
+                }
+              }
+
+              items(activeUsers) { user ->
+                val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
+                Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier.width(68.dp)
+                ) {
+                  Box(
+                    modifier = Modifier.size(62.dp),
+                    contentAlignment = Alignment.Center
+                  ) {
+                    Box(
+                      modifier = Modifier
+                        .size(62.dp)
+                        .drawBehind {
+                          drawCircle(
+                            color = Color.White.copy(alpha = 0.6f),
+                            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(25f, 10f), 0f))
+                          )
+                        }
+                    )
+                    UserAvatar(
+                      photoBase64 = user.photoBase64,
+                      username = user.username,
+                      avatarColor = Color(user.avatarColor),
+                      size = 50.dp,
+                      textSize = 15.sp
+                    )
+                  }
+                  Spacer(modifier = Modifier.height(6.dp))
+                  Text(
+                    text = displayNameToShow,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
+                  Text(
+                    text = "Recent",
+                    color = Color(0xFF8E9AA4),
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
+                }
+              }
+            }
+          }
+
           Box(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 12.dp)
+              .padding(horizontal = 16.dp, vertical = 8.dp)
               .clip(CircleShape)
               .background(Color(0xFF13171F))
               .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -2344,153 +2461,7 @@ fun GhostViewImageBubble(
   }
 }
 
-// STATUS/UPDATES VIEW (Zero dummy channels, only real active users)
-@Composable
-fun GhostViewUpdatesTab(
-  activeUsers: List<WhatsAppUser>
-) {
-  Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .background(Color(0xFF080C10))
-      .padding(16.dp)
-      .verticalScroll(rememberScrollState()),
-    verticalArrangement = Arrangement.spacedBy(20.dp)
-  ) {
-    Text("Recent Status Stories", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-    
-    if (activeUsers.isEmpty()) {
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(100.dp),
-        contentAlignment = Alignment.Center
-      ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Status Portal", tint = Color(0xFF24303B), modifier = Modifier.size(32.dp))
-          Spacer(modifier = Modifier.height(8.dp))
-          Text("No status feeds detected from peer nodes", color = Color(0xFF8E9AA4), fontSize = 13.sp)
-        }
-      }
-    } else {
-      LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-              modifier = Modifier.size(62.dp),
-              contentAlignment = Alignment.Center
-            ) {
-              Box(
-                modifier = Modifier
-                  .size(62.dp)
-                  .drawBehind {
-                    drawCircle(
-                      color = Color(0xFF8E9AA4),
-                      style = Stroke(width = 2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 10f), 0f))
-                    )
-                  }
-              )
-              Box(
-                modifier = Modifier
-                  .size(52.dp)
-                  .clip(CircleShape)
-                  .background(Color(0xFF121B22)),
-                contentAlignment = Alignment.Center
-              ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add status update", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
-              }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text("My Status", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text("Tap to upload", color = Color(0xFF8E9AA4), fontSize = 10.sp)
-          }
-        }
 
-        items(activeUsers) { user ->
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-              modifier = Modifier.size(62.dp),
-              contentAlignment = Alignment.Center
-            ) {
-              Box(
-                modifier = Modifier
-                  .size(62.dp)
-                  .drawBehind {
-                    drawCircle(
-                      color = Color(0xFF00E5FF),
-                      style = Stroke(width = 2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 10f), 0f))
-                    )
-                  }
-              )
-              Box(
-                modifier = Modifier
-                  .size(52.dp)
-                  .clip(CircleShape)
-                  .background(Color(user.avatarColor)),
-                contentAlignment = Alignment.Center
-              ) {
-                Text(
-                  text = user.username.take(2).uppercase(),
-                  color = Color.Black,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 14.sp
-                )
-              }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
-            Text(displayNameToShow, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text("Recent", color = Color(0xFF8E9AA4), fontSize = 10.sp)
-          }
-        }
-      }
-    }
-
-    HorizontalDivider(color = Color(0xFF121B22))
-
-    // Real system announcements and verify info
-    Text("Verified Encryption Verification Nodes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      val announcements = listOf(
-        Pair("GhostView Cryptography Portal", "Active security tunnels verified under Zero-Knowledge protocols."),
-        Pair("System Core Security", "Handshake fingerprints are generated locally using device private keys.")
-      )
-      announcements.forEach { node ->
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF121B22))
-            .padding(14.dp),
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Box(
-            modifier = Modifier
-              .size(44.dp)
-              .clip(CircleShape)
-              .background(Color(0xFF00E5FF)),
-            contentAlignment = Alignment.Center
-          ) {
-            Icon(imageVector = Icons.Default.Security, contentDescription = "Announcement Flag", tint = Color.Black, modifier = Modifier.size(20.dp))
-          }
-          Spacer(modifier = Modifier.width(14.dp))
-          Column(modifier = Modifier.weight(1f)) {
-            Text(node.first, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(node.second, color = Color(0xFF8E9AA4), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-          }
-          Button(
-            onClick = {},
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
-          ) {
-            Text("VERIFY", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-          }
-        }
-      }
-    }
-  }
-}
 
 // CALLS TAB (Recent call records populated dynamically from active contact directory)
 @Composable
