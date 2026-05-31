@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -962,7 +963,7 @@ fun SecondaryGlassButton(
       horizontalArrangement = Arrangement.Center
     ) {
       Icon(
-        imageVector = if (text.contains("Log In", ignoreCase = true)) Icons.Default.Login else Icons.Default.PersonAdd,
+        imageVector = if (text.contains("Log In", ignoreCase = true)) Icons.AutoMirrored.Filled.Login else Icons.Default.PersonAdd,
         contentDescription = null,
         tint = ColorWhite,
         modifier = Modifier.size(18.dp)
