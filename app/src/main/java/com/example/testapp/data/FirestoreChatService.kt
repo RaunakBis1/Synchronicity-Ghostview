@@ -31,6 +31,7 @@ data class WhatsAppMessage(
   val voiceDurationSec: Int = 0,
   val reactions: Map<String, String> = emptyMap(), // username -> reaction emoji
   val disappearing: Boolean = false,
+  val isOneTime: Boolean = false,
   val isViewed: Boolean = false
 )
 
@@ -242,6 +243,8 @@ class FirestoreChatService {
             @Suppress("UNCHECKED_CAST")
             val reactions = (doc.get("reactions") as? Map<String, String>) ?: emptyMap()
             val disappearing = doc.getBoolean("disappearing") ?: false
+            val isOneTime = doc.getBoolean("isOneTime") ?: false
+            val isViewed = doc.getBoolean("isViewed") ?: false
 
             WhatsAppMessage(
               id = id,
@@ -262,7 +265,9 @@ class FirestoreChatService {
               fileSize = fileSize,
               voiceDurationSec = voiceDurationSec,
               reactions = reactions,
-              disappearing = disappearing
+              disappearing = disappearing,
+              isOneTime = isOneTime,
+              isViewed = isViewed
             )
           }
           trySend(messageList.sortedBy { it.timestamp })
@@ -291,7 +296,9 @@ class FirestoreChatService {
       "fileSize" to msg.fileSize,
       "voiceDurationSec" to msg.voiceDurationSec.toLong(),
       "reactions" to msg.reactions,
-      "disappearing" to msg.disappearing
+      "disappearing" to msg.disappearing,
+      "isOneTime" to msg.isOneTime,
+      "isViewed" to msg.isViewed
     )
     messagesCollection.add(messageData)
       .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error sending message", e) }
@@ -339,7 +346,9 @@ class FirestoreChatService {
 
   // 9. Mark One-Time message as viewed
   fun markMessageAsViewed(messageId: String) {
-    messagesCollection.document(messageId).update("isViewed", true)
-      .addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error marking message as viewed", e) }
+    messagesCollection.document(messageId).update(
+      "isViewed", true,
+      "mediaUrl", ""
+    ).addOnFailureListener { e -> android.util.Log.e("FirestoreChat", "Error marking message as viewed", e) }
   }
 }

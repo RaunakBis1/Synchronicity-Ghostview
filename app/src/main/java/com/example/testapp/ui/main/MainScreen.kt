@@ -8,6 +8,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.util.Log
+import okhttp3.*
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+
+import android.os.Handler
+import android.os.Looper
+
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -67,8 +76,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -79,6 +86,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import coil.compose.AsyncImage
+
+import okhttp3.MultipartBody
+import okhttp3.Request
+import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.security.MessageDigest
 import com.example.testapp.data.DefaultDataRepository
 import com.example.testapp.data.FirestoreChatService
 import com.example.testapp.data.WhatsAppMessage
@@ -92,7 +107,6 @@ import com.google.firebase.auth.userProfileChangeRequest
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -157,11 +171,9 @@ fun uriToBase64(context: android.content.Context, uri: Uri): android.util.Pair<S
     }
     
     val mimeType = context.contentResolver.getType(uri)
-    if (mimeType != null && mimeType.indexOf("image") == 0) {
-      var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    if (mimeType?.startsWith("image") == true) {
+      val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
       if (bitmap != null) {
-        // Fix EXIF rotation
-        bitmap = correctBitmapOrientation(context, uri, bitmap)
         val outputStream = ByteArrayOutputStream()
         // Compress highly to remain securely below Firestore's 1MB document limit
         bitmap.compress(Bitmap.CompressFormat.JPEG, 25, outputStream)
@@ -175,85 +187,6 @@ fun uriToBase64(context: android.content.Context, uri: Uri): android.util.Pair<S
     android.util.Pair(base64, fileName)
   } catch (e: Exception) {
     android.util.Pair("", "")
-  }
-}
-
-// Fix EXIF rotation for images selected from gallery
-fun correctBitmapOrientation(context: android.content.Context, uri: Uri, bitmap: Bitmap): Bitmap {
-  return try {
-    val inputStream = context.contentResolver.openInputStream(uri) ?: return bitmap
-    val exif = androidx.exifinterface.media.ExifInterface(inputStream)
-    val orientation = exif.getAttributeInt(
-      androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
-    )
-    inputStream.close()
-    
-    val matrix = android.graphics.Matrix()
-    when (orientation) {
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
-      androidx.exifinterface.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
-      else -> return bitmap
-    }
-    
-    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-    rotated
-  } catch (e: Exception) {
-    bitmap
-  }
-}
-
-// Process profile photo: correct rotation, center-crop to square, compress
-fun processProfilePhoto(context: android.content.Context, uri: Uri): Bitmap? {
-  return try {
-    val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-    val bytes = inputStream.readBytes()
-    inputStream.close()
-    
-    // Decode with size limits to prevent OOM
-    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-    val targetSize = 512
-    var sampleSize = 1
-    while (options.outWidth / sampleSize > targetSize * 2 || options.outHeight / sampleSize > targetSize * 2) {
-      sampleSize *= 2
-    }
-    
-    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions) ?: return null
-    
-    // Fix EXIF rotation
-    bitmap = correctBitmapOrientation(context, uri, bitmap)
-    
-    bitmap
-  } catch (e: Exception) {
-    null
-  }
-}
-
-// Crop bitmap to square from center
-fun cropBitmapToSquare(bitmap: Bitmap): Bitmap {
-  val size = minOf(bitmap.width, bitmap.height)
-  val x = (bitmap.width - size) / 2
-  val y = (bitmap.height - size) / 2
-  return Bitmap.createBitmap(bitmap, x, y, size, size)
-}
-
-// Convert bitmap to Base64 for Firestore storage
-fun bitmapToProfileBase64(bitmap: Bitmap): String {
-  return try {
-    val square = cropBitmapToSquare(bitmap)
-    // Scale down to 256x256 for profile photos
-    val scaled = Bitmap.createScaledBitmap(square, 256, 256, true)
-    val outputStream = ByteArrayOutputStream()
-    scaled.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
-    val bytes = outputStream.toByteArray()
-    Base64.encodeToString(bytes, Base64.DEFAULT)
-  } catch (e: Exception) {
-    ""
   }
 }
 
@@ -294,67 +227,6 @@ fun Base64Image(base64Str: String, modifier: Modifier = Modifier) {
     ) {
       Icon(imageVector = Icons.Default.BrokenImage, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(32.dp))
     }
-  }
-}
-
-// Reusable avatar that shows profile photo or fallback initials
-@Composable
-fun UserAvatar(
-  photoBase64: String? = null,
-  username: String,
-  avatarColor: Color = Color(0xFF1E293B),
-  size: Dp = 46.dp,
-  textSize: TextUnit = 15.sp
-) {
-  if (!photoBase64.isNullOrEmpty()) {
-    val imageBitmap = remember(photoBase64) {
-      try {
-        val decodedBytes = Base64.decode(photoBase64, Base64.DEFAULT)
-        val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
-        bitmap?.asImageBitmap()
-      } catch (e: Exception) {
-        null
-      }
-    }
-    if (imageBitmap != null) {
-      Image(
-        bitmap = imageBitmap,
-        contentDescription = "$username avatar",
-        modifier = Modifier
-          .size(size)
-          .clip(CircleShape)
-          .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
-        contentScale = ContentScale.Crop
-      )
-    } else {
-      AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
-    }
-  } else {
-    AvatarFallback(username = username, avatarColor = avatarColor, size = size, textSize = textSize)
-  }
-}
-
-@Composable
-private fun AvatarFallback(
-  username: String,
-  avatarColor: Color,
-  size: Dp,
-  textSize: TextUnit
-) {
-  Box(
-    modifier = Modifier
-      .size(size)
-      .clip(CircleShape)
-      .background(Color(0xFF13171F))
-      .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
-    contentAlignment = Alignment.Center
-  ) {
-    Text(
-      text = username.take(2).uppercase(),
-      color = Color.White,
-      fontWeight = FontWeight.Bold,
-      fontSize = textSize
-    )
   }
 }
 
@@ -445,14 +317,12 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
   // Active messages streams
   val firestoreMessages = remember { mutableStateListOf<WhatsAppMessage>() }
 
-  // Active chat stream binding - use derivedStateOf for reactive updates
-  val currentChatId by remember {
-    derivedStateOf {
-      if (firestoreService != null && nickname.isNotEmpty() && activeChatPartner.isNotEmpty()) {
-        firestoreService.getChatId(nickname, activeChatPartner)
-      } else {
-        ""
-      }
+  // Active chat stream binding
+  val currentChatId = remember(nickname, activeChatPartner) {
+    if (firestoreService != null && nickname.isNotEmpty()) {
+      firestoreService.getChatId(nickname, activeChatPartner)
+    } else {
+      ""
     }
   }
 
@@ -465,25 +335,18 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           val filtered = list.filter { it.username.lowercase().trim() != nickname.lowercase().trim() }
           firestoreUsersList.addAll(filtered)
         }
-      } catch (e: Exception) {
-        Log.e("GhostView", "Error syncing users", e)
-      }
+      } catch (e: Exception) {}
     }
 
     // Subscribe to messages in current chatroom
     LaunchedEffect(currentChatId) {
-      firestoreMessages.clear()
       if (currentChatId.isNotEmpty()) {
-        Log.d("GhostView", "Subscribing to chatId: $currentChatId (me=$nickname, partner=$activeChatPartner)")
         try {
           firestoreService.getRealtimeMessages(currentChatId).collect { list ->
-            Log.d("GhostView", "Received ${list.size} messages for chatId=$currentChatId")
             firestoreMessages.clear()
             firestoreMessages.addAll(list)
           }
-        } catch (e: Exception) {
-          Log.e("GhostView", "Error subscribing to messages", e)
-        }
+        } catch (e: Exception) {}
       }
     }
   }
@@ -503,7 +366,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
     locationName: String? = null,
     fileName: String? = null,
     fileSize: String? = null,
-    voiceDurationSec: Int = 0
+    voiceDurationSec: Int = 0,
+    isOneTime: Boolean = false
   ) {
     val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
     val newMsg = WhatsAppMessage(
@@ -525,14 +389,12 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
       fileSize = fileSize,
       voiceDurationSec = voiceDurationSec,
       reactions = emptyMap(),
-      disappearing = ephemeralChatEnabled
+      disappearing = ephemeralChatEnabled,
+      isOneTime = isOneTime
     )
 
     if (firestoreService != null && currentChatId.isNotEmpty()) {
-      Log.d("GhostView", "Sending message: text='$text' type='$type' chatId='$currentChatId' sender='$nickname' receiver='$activeChatPartner'")
       firestoreService.sendMessage(newMsg, currentChatId)
-    } else {
-      Log.e("GhostView", "CANNOT SEND: firestoreService=${firestoreService != null} currentChatId='$currentChatId' nickname='$nickname' partner='$activeChatPartner'")
     }
   }
 
@@ -557,14 +419,14 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
     else -> Brush.verticalGradient(colors = listOf(Color(0xFF080C10), Color(0xFF10161D))) // Midnight Obsidian
   }
 
-  Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+  Box(modifier = Modifier.fillMaxSize().background(Color(0xFF080C10))) {
     Column(modifier = Modifier.fillMaxSize()) {
       
       // GhostView Styled Header Bar
       Box(
         modifier = Modifier
           .fillMaxWidth()
-          .background(Color.Black)
+          .background(Color(0xFF121B22))
           .statusBarsPadding()
           .padding(horizontal = 16.dp, vertical = 14.dp)
       ) {
@@ -576,13 +438,12 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
               modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF13171F))
-                .border(BorderStroke(1.dp, Color(0xFF33353D)), RoundedCornerShape(12.dp)),
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF00E5FF)),
               contentAlignment = Alignment.Center
             ) {
-              Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Logo", tint = Color.White, modifier = Modifier.size(22.dp))
+              Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Logo", tint = Color.Black, modifier = Modifier.size(20.dp))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column {
@@ -595,7 +456,7 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
               )
               if (hasJoined) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                  Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF8E9AA4)))
+                  Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF00E5FF)))
                   Spacer(modifier = Modifier.width(4.dp))
                   Text(
                     text = "Logged in as: @${nickname.lowercase()}",
@@ -612,23 +473,22 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
           if (hasJoined) {
             Box(
               modifier = Modifier
-                .clip(CircleShape)
-                .background(Color(0xFF13171F))
-                .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0x1A00E5FF))
+                .border(1.dp, Color(0x6600E5FF), RoundedCornerShape(12.dp))
                 .clickable { securityCenterOpen = true }
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
               Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
               ) {
-                Icon(imageVector = Icons.Default.Security, contentDescription = "Security Status", tint = Color(0xFF8E9AA4), modifier = Modifier.size(14.dp))
+                Icon(imageVector = Icons.Default.Security, contentDescription = "Security Status", tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
                 Text(
                   text = "SECURE CHANNEL",
-                  color = Color(0xFF8E9AA4),
+                  color = Color(0xFF00E5FF),
                   fontSize = 10.sp,
-                  fontWeight = FontWeight.Bold,
-                  letterSpacing = 0.5.sp
+                  fontWeight = FontWeight.Bold
                 )
               }
             }
@@ -668,8 +528,8 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
                   activeChatPartnerName = name
                 },
                 onSendMessage = { handleSendMessage(it) },
-                onSendRichMessage = { type, mUrl, q, o, lat, lng, lName, fName, fSize, dur ->
-                  handleSendMessage("", type, mUrl, q, o, lat, lng, lName, fName, fSize, dur)
+                onSendRichMessage = { type, mUrl, q, o, lat, lng, lName, fName, fSize, dur, isOneTime ->
+                  handleSendMessage("", type, mUrl, q, o, lat, lng, lName, fName, fSize, dur, isOneTime)
                 },
                 onVoteCast = { msgId, optIdx -> handleCastVote(msgId, optIdx) },
                 onReact = { msgId, emoji -> handleAddReaction(msgId, emoji) },
@@ -682,6 +542,9 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
               )
             }
             1 -> {
+              GhostViewUpdatesTab(activeUsers = activeUsersList)
+            }
+            2 -> {
               GhostViewCallsTab(
                 activeUsers = activeUsersList,
                 onTriggerCall = { name, type ->
@@ -691,7 +554,7 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
                 }
               )
             }
-            2 -> {
+            3 -> {
               GhostViewSettingsTab(
                 username = nickname,
                 wallpaperIndex = wallpaperIndex,
@@ -715,87 +578,44 @@ fun GhostViewDashboard(modifier: Modifier = Modifier) {
 
       if (hasJoined) {
         // App Tab Selector Bar (Standard Naming)
-        Box(
+        Row(
           modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(CircleShape)
-            .background(Color(0xEE0B0C0E))
-            .border(BorderStroke(1.dp, Color(0xFF242730)), CircleShape)
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .background(Color(0xFF121B22))
+            .padding(bottom = 12.dp)
         ) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            val tabConfigs = listOf(
-              Triple("Chats", Icons.Default.ChatBubble, 0),
-              Triple("Calls", Icons.Default.Phone, 1),
-              Triple("Settings", Icons.Default.Settings, 2)
-            )
-            tabConfigs.forEach { (title, icon, idx) ->
-              val active = activeTab == idx
-              
-              Box(
-                modifier = Modifier
-                  .weight(1f)
-                  .clip(CircleShape)
-                  .let {
-                    if (active) {
-                      it
-                        .background(Color(0x22FFFFFF))
-                        .border(
-                          BorderStroke(
-                            1.dp,
-                            Brush.linearGradient(
-                              colors = listOf(
-                                Color.White.copy(alpha = 0.2f),
-                                Color.White.copy(alpha = 0.02f)
-                              )
-                            )
-                          ),
-                          CircleShape
-                        )
-                    } else {
-                      it.clickable { activeTab = idx }
-                    }
-                  }
-                  .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-              ) {
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  verticalArrangement = Arrangement.Center
-                ) {
-                  if (active) {
-                    Box(
-                      modifier = Modifier
-                        .size(width = 12.dp, height = 3.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                  } else {
-                    Spacer(modifier = Modifier.height(7.dp))
-                  }
-                  
-                  Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = if (active) Color.White else Color(0xFF6B7280),
-                    modifier = Modifier.size(20.dp)
-                  )
-                  Spacer(modifier = Modifier.height(2.dp))
-                  Text(
-                    text = title,
-                    color = if (active) Color.White else Color(0xFF6B7280),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                  )
-                }
-              }
+          val tabConfigs = listOf(
+            Triple("Chats", Icons.Default.ChatBubble, 0),
+            Triple("Status", Icons.Default.Adjust, 1),
+            Triple("Calls", Icons.Default.Phone, 2),
+            Triple("Settings", Icons.Default.Settings, 3)
+          )
+          tabConfigs.forEach { (title, icon, idx) ->
+            val active = activeTab == idx
+            val indicatorColor by animateColorAsState(if (active) Color(0xFF00E5FF) else Color.Transparent, label = "")
+            Column(
+              modifier = Modifier
+                .weight(1f)
+                .clickable { activeTab = idx }
+                .padding(top = 0.dp, bottom = 8.dp),
+              horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+              Box(modifier = Modifier.height(3.dp).fillMaxWidth(0.6f).clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp)).background(indicatorColor))
+              Spacer(modifier = Modifier.height(8.dp))
+              Icon(
+                imageVector = icon, 
+                contentDescription = title,
+                tint = if (active) Color(0xFF00E5FF) else Color(0xFF8E9AA4),
+                modifier = Modifier.size(22.dp)
+              )
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = title,
+                color = if (active) Color(0xFF00E5FF) else Color(0xFF8E9AA4),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+              )
             }
           }
         }
@@ -952,7 +772,7 @@ fun GhostViewChatsTab(
   doodleMode: Boolean,
   onPartnerSelected: (String, String) -> Unit,
   onSendMessage: (String) -> Unit,
-  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int) -> Unit,
+  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int, Boolean) -> Unit,
   onVoteCast: (String, Int) -> Unit,
   onReact: (String, String) -> Unit,
   onTriggerCall: (String) -> Unit,
@@ -970,225 +790,66 @@ fun GhostViewChatsTab(
         Column(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color(0xFF080C10))
         ) {
-          // Status Feeds on Top (Recent Status Stories)
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(top = 16.dp, bottom = 4.dp)
-          ) {
-            Text(
-              text = "Recent Status Stories",
-              color = Color.White,
-              fontWeight = FontWeight.Bold,
-              fontSize = 15.sp,
-              modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-            )
-
-            LazyRow(
-              horizontalArrangement = Arrangement.spacedBy(16.dp),
-              contentPadding = PaddingValues(horizontal = 16.dp)
-            ) {
-              item {
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier.width(68.dp)
-                ) {
-                  Box(
-                    modifier = Modifier.size(62.dp),
-                    contentAlignment = Alignment.Center
-                  ) {
-                    Box(
-                      modifier = Modifier
-                        .size(62.dp)
-                        .drawBehind {
-                          drawCircle(
-                            color = Color(0xFF3A3F4B),
-                            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(25f, 10f), 0f))
-                          )
-                        }
-                    )
-                    Box(
-                      modifier = Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF13171F))
-                        .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
-                      contentAlignment = Alignment.Center
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add status",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                      )
-                    }
-                  }
-                  Spacer(modifier = Modifier.height(6.dp))
-                  Text(
-                    text = "My Status",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                  )
-                  Text(
-                    text = "Tap to upload",
-                    color = Color(0xFF8E9AA4),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                  )
-                }
-              }
-
-              items(activeUsers) { user ->
-                val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier.width(68.dp)
-                ) {
-                  Box(
-                    modifier = Modifier.size(62.dp),
-                    contentAlignment = Alignment.Center
-                  ) {
-                    Box(
-                      modifier = Modifier
-                        .size(62.dp)
-                        .drawBehind {
-                          drawCircle(
-                            color = Color.White.copy(alpha = 0.6f),
-                            style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(25f, 10f), 0f))
-                          )
-                        }
-                    )
-                    UserAvatar(
-                      photoBase64 = user.photoBase64,
-                      username = user.username,
-                      avatarColor = Color(user.avatarColor),
-                      size = 50.dp,
-                      textSize = 15.sp
-                    )
-                  }
-                  Spacer(modifier = Modifier.height(6.dp))
-                  Text(
-                    text = displayNameToShow,
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                  )
-                  Text(
-                    text = "Recent",
-                    color = Color(0xFF8E9AA4),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                  )
-                }
-              }
-            }
-          }
-
           Box(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 8.dp)
-              .clip(CircleShape)
-              .background(Color(0xFF13171F))
-              .padding(horizontal = 16.dp, vertical = 12.dp)
+              .padding(14.dp)
+              .clip(RoundedCornerShape(12.dp))
+              .background(Color(0xFF121B22))
+              .padding(horizontal = 14.dp, vertical = 10.dp)
           ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search Chats",
-                tint = Color(0xFF8E9AA4),
-                modifier = Modifier.size(18.dp)
-              )
-              Spacer(modifier = Modifier.width(10.dp))
-              Text(
-                text = "Search chats or username handles",
-                color = Color(0xFF8E9AA4),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Normal
-              )
+              Icon(imageVector = Icons.Default.Search, contentDescription = "Search Chats", tint = Color(0xFF8E9AA4), modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Search chats or username handles", color = Color(0xFF8E9AA4), fontSize = 13.sp)
             }
           }
 
-          LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-          ) {
+          LazyColumn(modifier = Modifier.fillMaxSize()) {
             // Lobby card
             item {
-              Box(
+              val selected = activePartner == "group_lounge"
+              val itemBg = if (selected) Color(0xFF1C2C35) else Color.Transparent
+              Row(
                 modifier = Modifier
                   .fillMaxWidth()
-                  .clip(RoundedCornerShape(18.dp))
-                  .background(Color(0xCC13171F))
-                  .border(
-                    BorderStroke(
-                      1.dp,
-                      Brush.linearGradient(
-                        colors = listOf(
-                          Color.White.copy(alpha = 0.2f),
-                          Color.White.copy(alpha = 0.02f)
-                        )
-                      )
-                    ),
-                    RoundedCornerShape(18.dp)
-                  )
+                  .background(itemBg)
                   .clickable {
                     onPartnerSelected("group_lounge", "Global Lounge Chat")
                   }
-                  .padding(horizontal = 16.dp, vertical = 16.dp)
+                  .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
               ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically
+                Box(
+                  modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00E5FF)),
+                  contentAlignment = Alignment.Center
                 ) {
-                  Box(
-                    modifier = Modifier
-                      .size(48.dp)
-                      .clip(CircleShape)
-                      .background(Color(0xFF13171F))
-                      .border(BorderStroke(1.dp, Color(0xFF3A3F4B)), CircleShape),
-                    contentAlignment = Alignment.Center
+                  Icon(imageVector = Icons.Default.Group, contentDescription = "Lounge", tint = Color.Black, modifier = Modifier.size(24.dp))
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                   ) {
-                    Icon(imageVector = Icons.Default.Group, contentDescription = "Lounge", tint = Color.White, modifier = Modifier.size(24.dp))
+                    Text("Global Lounge Chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Online", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                   }
-                  Spacer(modifier = Modifier.width(16.dp))
-                  Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                      modifier = Modifier.fillMaxWidth(),
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
-                      Text("Global Lounge Chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                      Box(
-                        modifier = Modifier
-                          .clip(CircleShape)
-                          .background(Color(0xFF13171F))
-                          .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
-                          .padding(horizontal = 10.dp, vertical = 4.dp)
-                      ) {
-                        Text("Online", color = Color(0xFF8E9AA4), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                      }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                      "Shared messaging tunnel connecting all online nodes.",
-                      color = Color(0xFF8E9AA4),
-                      fontSize = 12.sp,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis
-                    )
-                  }
+                  Text(
+                    "Shared messaging tunnel connecting all online nodes.",
+                    color = Color(0xFF8E9AA4),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                  )
                 }
               }
+              HorizontalDivider(color = Color(0xFF121B22), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
             }
 
             // Active Chats from Firestore
@@ -1220,123 +881,74 @@ fun GhostViewChatsTab(
               }
             } else {
               items(activeUsers) { user ->
-                val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
-                Box(
+                val selected = activePartner == user.username
+                val itemBg = if (selected) Color(0xFF161F26) else Color.Transparent
+                Row(
                   modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xCC13171F))
-                    .border(
-                      BorderStroke(
-                        1.dp,
-                        Brush.linearGradient(
-                          colors = listOf(
-                            Color.White.copy(alpha = 0.2f),
-                            Color.White.copy(alpha = 0.02f)
-                          )
-                        )
-                      ),
-                      RoundedCornerShape(18.dp)
-                    )
+                    .background(itemBg)
                     .clickable {
-                      onPartnerSelected(user.username, displayNameToShow)
+                      onPartnerSelected(user.username, user.username.replaceFirstChar { it.uppercase() })
                     }
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                  verticalAlignment = Alignment.CenterVertically
                 ) {
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically
+                  Box(
+                    modifier = Modifier
+                      .size(46.dp)
+                      .clip(CircleShape)
+                      .background(Color(user.avatarColor)),
+                    contentAlignment = Alignment.Center
                   ) {
-                    UserAvatar(
-                      photoBase64 = user.photoBase64,
-                      username = user.username,
-                      avatarColor = Color(user.avatarColor),
-                      size = 48.dp,
-                      textSize = 15.sp
+                    Text(
+                      text = user.username.take(2).uppercase(),
+                      color = Color.Black,
+                      fontWeight = FontWeight.Bold,
+                      fontSize = 15.sp
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                      Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                      ) {
-                        Text(
-                          text = displayNameToShow,
-                          color = Color.White,
-                          fontWeight = FontWeight.Bold,
-                          fontSize = 15.sp
-                        )
-                        Box(
-                          modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color(0xFF13171F))
-                            .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                          Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                          ) {
-                            Icon(
-                              imageVector = Icons.Default.Lock,
-                              contentDescription = "Encrypted",
-                              tint = Color(0xFF8E9AA4),
-                              modifier = Modifier.size(10.dp)
-                            )
-                            Text(
-                              text = "Encrypted",
-                              color = Color(0xFF8E9AA4),
-                              fontSize = 10.sp,
-                              fontWeight = FontWeight.Bold
-                            )
-                          }
-                        }
-                      }
-                      Spacer(modifier = Modifier.height(4.dp))
+                  }
+                  Spacer(modifier = Modifier.width(16.dp))
+                  Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                       Text(
-                        text = user.bio,
+                        text = user.username.replaceFirstChar { it.uppercase() },
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                      )
+                      Text(
+                        text = "Encrypted",
                         color = Color(0xFF8E9AA4),
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 10.sp
                       )
                     }
+                    Text(
+                      text = user.bio,
+                      color = Color(0xFF8E9AA4),
+                      fontSize = 12.sp,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis
+                    )
                   }
                 }
+                HorizontalDivider(color = Color(0xFF121B22), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
               }
             }
           }
         }
 
-        // FAB for New Contact (Custom squircle glass style)
-        Box(
+        // FAB for New Contact
+        androidx.compose.material3.FloatingActionButton(
+          onClick = { showAddContactDialog = true },
           modifier = Modifier
             .align(Alignment.BottomEnd)
-            .padding(bottom = 100.dp, end = 24.dp)
-            .size(60.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xCC13171F))
-            .border(
-              BorderStroke(
-                1.dp,
-                Brush.linearGradient(
-                  colors = listOf(
-                    Color.White.copy(alpha = 0.25f),
-                    Color.White.copy(alpha = 0.05f)
-                  )
-                )
-              ),
-              RoundedCornerShape(16.dp)
-            )
-            .clickable { showAddContactDialog = true },
-          contentAlignment = Alignment.Center
+            .padding(24.dp),
+          containerColor = Color(0xFF00E5FF)
         ) {
-          Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = "Add Contact",
-            tint = Color.White,
-            modifier = Modifier.size(28.dp)
-          )
+          Icon(Icons.Default.Add, contentDescription = "Add Contact", tint = Color.Black)
         }
       }
 
@@ -1410,14 +1022,13 @@ fun GhostViewChatsTab(
                     .verticalScroll(rememberScrollState())
                 ) {
                   searchResults.forEach { user ->
-                    val displayNameToShow = if (!user.displayName.isNullOrBlank()) user.displayName else user.username.replaceFirstChar { it.uppercase() }
                     Row(
                       modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF1C2C35))
                         .clickable {
-                          onPartnerSelected(user.username, displayNameToShow)
+                          onPartnerSelected(user.username, user.username.replaceFirstChar { it.uppercase() })
                           showAddContactDialog = false
                           contactQuery = ""
                           searchResults = emptyList()
@@ -1425,17 +1036,24 @@ fun GhostViewChatsTab(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                       verticalAlignment = Alignment.CenterVertically
                     ) {
-                      UserAvatar(
-                        photoBase64 = user.photoBase64,
-                        username = user.username,
-                        avatarColor = Color(user.avatarColor),
-                        size = 38.dp,
-                        textSize = 14.sp
-                      )
+                      Box(
+                        modifier = Modifier
+                          .size(38.dp)
+                          .clip(CircleShape)
+                          .background(Color(user.avatarColor)),
+                        contentAlignment = Alignment.Center
+                      ) {
+                        Text(
+                          text = user.username.take(2).uppercase(),
+                          color = Color.Black,
+                          fontWeight = FontWeight.Bold,
+                          fontSize = 14.sp
+                        )
+                      }
                       Spacer(modifier = Modifier.width(12.dp))
                       Column(modifier = Modifier.weight(1f)) {
                         Text(
-                          text = displayNameToShow,
+                          text = user.username.replaceFirstChar { it.uppercase() },
                           color = Color.White,
                           fontWeight = FontWeight.Bold,
                           fontSize = 14.sp
@@ -1515,7 +1133,6 @@ fun GhostViewChatsTab(
         ChatWindow(
           nickname = nickname,
           chatPartnerName = activePartnerName,
-          chatPartnerPhoto = activeUsers.find { it.username.lowercase() == activePartner.lowercase() }?.photoBase64,
           messages = messagesList,
           chatBg = chatBg,
           doodleMode = doodleMode,
@@ -1525,8 +1142,7 @@ fun GhostViewChatsTab(
           onReact = onReact,
           onTriggerCall = onTriggerCall,
           onBackClicked = { onPartnerSelected("", "") },
-          firestoreService = firestoreService,
-          activeUsers = activeUsers
+          firestoreService = firestoreService
         )
       }
     }
@@ -1539,18 +1155,16 @@ fun GhostViewChatsTab(
 fun ChatWindow(
   nickname: String,
   chatPartnerName: String,
-  chatPartnerPhoto: String? = null,
   messages: List<WhatsAppMessage>,
   chatBg: Brush,
   doodleMode: Boolean,
   onSendMessage: (String) -> Unit,
-  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int) -> Unit,
+  onSendRichMessage: (String, String?, String?, List<String>, Double, Double, String?, String?, String?, Int, Boolean) -> Unit,
   onVoteCast: (String, Int) -> Unit,
   onReact: (String, String) -> Unit,
   onTriggerCall: (String) -> Unit,
   onBackClicked: () -> Unit,
-  firestoreService: FirestoreChatService?,
-  activeUsers: List<WhatsAppUser> = emptyList()
+  firestoreService: FirestoreChatService?
 ) {
   val coroutineScope = rememberCoroutineScope()
   val listState = rememberLazyListState()
@@ -1580,14 +1194,18 @@ fun ChatWindow(
   val context = LocalContext.current
 
   // Real Activity Result Contracts to support ACTUAL media sharing!
+  var pendingImageBase64 by remember { mutableStateOf<String?>(null) }
+  var pendingImageFileName by remember { mutableStateOf<String?>(null) }
+
   val imagePickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.GetContent()
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val result = uriToBase64(context, uri)
-        if (result.first.isNotEmpty()) {
-          onSendRichMessage("image", result.first, null, emptyList(), 0.0, 0.0, null, result.second, null, 0)
+        val (base64, fileName) = uriToBase64(context, uri)
+        if (base64.isNotEmpty()) {
+          pendingImageBase64 = base64
+          pendingImageFileName = fileName
         }
       }
     }
@@ -1600,7 +1218,7 @@ fun ChatWindow(
       coroutineScope.launch {
         val base64 = bitmapToBase64(bitmap)
         if (base64.isNotEmpty()) {
-          onSendRichMessage("image", base64, null, emptyList(), 0.0, 0.0, null, "CameraPhoto.jpg", null, 0)
+          onSendRichMessage("image", base64, null, emptyList(), 0.0, 0.0, null, "CameraPhoto.jpg", null, 0, false)
         }
       }
     }
@@ -1611,9 +1229,9 @@ fun ChatWindow(
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val result = uriToBase64(context, uri)
-        if (result.first.isNotEmpty()) {
-          onSendRichMessage("document", result.first, null, emptyList(), 0.0, 0.0, null, result.second, "145 KB", 0)
+        val (base64, fileName) = uriToBase64(context, uri)
+        if (base64.isNotEmpty()) {
+          onSendRichMessage("document", base64, null, emptyList(), 0.0, 0.0, null, fileName, "145 KB", 0, false)
         }
       }
     }
@@ -1695,12 +1313,15 @@ fun ChatWindow(
               Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(22.dp))
             }
             Spacer(modifier = Modifier.width(4.dp))
-            UserAvatar(
-              photoBase64 = chatPartnerPhoto,
-              username = if (chatPartnerName.isNotEmpty()) chatPartnerName else "?",
-              size = 38.dp,
-              textSize = 14.sp
-            )
+            Box(
+              modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF1E293B)),
+              contentAlignment = Alignment.Center
+            ) {
+              Text(if (chatPartnerName.isNotEmpty()) chatPartnerName.take(1) else "?", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column {
               Text(chatPartnerName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1750,8 +1371,16 @@ fun ChatWindow(
               self = msg.sender.lowercase().trim() == nickname.lowercase().trim(),
               onVote = { opt -> onVoteCast(msg.id, opt) },
               onReact = { emoji -> onReact(msg.id, emoji) },
-              onDelete = { firestoreService?.deleteMessage(msg.id) },
-              activeUsers = activeUsers
+              onDelete = {
+                if (firestoreService != null) {
+                  firestoreService.deleteMessage(msg.id)
+                }
+              },
+              onMarkViewed = {
+                if (firestoreService != null) {
+                  firestoreService.markMessageAsViewed(msg.id)
+                }
+              }
             )
           }
         }
@@ -1791,11 +1420,11 @@ fun ChatWindow(
           }
           Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             AttachmentItemIcon(Icons.Default.Mic, "Audio", Color(0xFFFF9800)) {
-              onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, 24)
+              onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, 24, false)
               attachmentOpen = false
             }
             AttachmentItemIcon(Icons.Default.Place, "Location", Color(0xFF20C0F0)) {
-              onSendRichMessage("location", null, null, emptyList(), 12.9716, 77.5946, "Core Coordinates", null, null, 0)
+              onSendRichMessage("location", null, null, emptyList(), 12.9716, 77.5946, "Core Coordinates", null, null, 0, false)
               attachmentOpen = false
             }
             AttachmentItemIcon(Icons.Default.BarChart, "Poll", Color(0xFF00BFA5)) {
@@ -1945,7 +1574,7 @@ fun ChatWindow(
               } else {
                 if (isRecordingVoice) {
                   isRecordingVoice = false
-                  onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, voiceRecordingSec)
+                  onSendRichMessage("voice", null, null, emptyList(), 0.0, 0.0, null, null, null, voiceRecordingSec, false)
                 } else {
                   isRecordingVoice = true
                 }
@@ -1982,72 +1611,41 @@ fun ChatWindow(
         contentAlignment = Alignment.Center
       ) {
         Card(
-          shape = RoundedCornerShape(20.dp),
+          shape = RoundedCornerShape(16.dp),
           colors = CardDefaults.cardColors(containerColor = Color(0xFF161F26)),
-          modifier = Modifier
-            .width(320.dp)
-            .padding(16.dp)
-            .clickable(enabled = false) {}
+          modifier = Modifier.padding(24.dp).clickable(enabled = false) {}
         ) {
-          Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-          ) {
-            Text("Create Poll", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Create Poll", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             OutlinedTextField(
-              value = question,
-              onValueChange = { question = it },
-              label = { Text("Question", color = Color(0xFF8E9AA4)) },
+              value = question, onValueChange = { question = it }, label = { Text("Question") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt1,
-              onValueChange = { opt1 = it },
-              label = { Text("Option 1", color = Color(0xFF8E9AA4)) },
+              value = opt1, onValueChange = { opt1 = it }, label = { Text("Option 1") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt2,
-              onValueChange = { opt2 = it },
-              label = { Text("Option 2", color = Color(0xFF8E9AA4)) },
+              value = opt2, onValueChange = { opt2 = it }, label = { Text("Option 2") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-              value = opt3,
-              onValueChange = { opt3 = it },
-              label = { Text("Option 3 (Optional)", color = Color(0xFF8E9AA4)) },
+              value = opt3, onValueChange = { opt3 = it }, label = { Text("Option 3 (Optional)") },
               colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedContainerColor = Color(0xFF080C10),
-                unfocusedContainerColor = Color(0xFF080C10),
-                cursorColor = Color(0xFF00E5FF),
-                focusedBorderColor = Color(0xFF00E5FF)
+                focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color(0xFF24303B)
               ),
               modifier = Modifier.fillMaxWidth()
             )
@@ -2064,12 +1662,52 @@ fun ChatWindow(
                 onClick = {
                   if (question.isNotEmpty() && opt1.isNotEmpty() && opt2.isNotEmpty()) {
                     val opts = listOf(opt1.trim(), opt2.trim()) + if (opt3.isNotEmpty()) listOf(opt3.trim()) else emptyList()
-                    onSendRichMessage("poll", null, question.trim(), opts, 0.0, 0.0, null, null, null, 0)
+                    onSendRichMessage("poll", null, question.trim(), opts, 0.0, 0.0, null, null, null, 0, false)
                     pollDialogOpen = false
                   }
                 }
               ) {
                 Text("CREATE", color = Color(0xFF00E5FF))
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (pendingImageBase64 != null) {
+      androidx.compose.ui.window.Dialog(onDismissRequest = { pendingImageBase64 = null }) {
+        Card(
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(containerColor = Color(0xFF161F26))
+        ) {
+          Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Send Photo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Base64Image(pendingImageBase64!!, modifier = Modifier.size(220.dp).clip(RoundedCornerShape(8.dp)))
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+              Button(
+                onClick = { 
+                  onSendRichMessage("image", pendingImageBase64, null, emptyList(), 0.0, 0.0, null, pendingImageFileName, null, 0, false)
+                  pendingImageBase64 = null
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+              ) {
+                Text("Normal", color = Color.Black, maxLines = 1, softWrap = false)
+              }
+              Button(
+                onClick = { 
+                  onSendRichMessage("image", pendingImageBase64, null, emptyList(), 0.0, 0.0, null, pendingImageFileName, null, 0, true)
+                  pendingImageBase64 = null
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF24303B))
+              ) {
+                Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("View Once", color = Color.White, maxLines = 1, softWrap = false)
               }
             }
           }
@@ -2112,7 +1750,7 @@ fun GhostViewBubble(
   onVote: (Int) -> Unit,
   onReact: (String) -> Unit,
   onDelete: () -> Unit,
-  activeUsers: List<WhatsAppUser> = emptyList()
+  onMarkViewed: () -> Unit = {}
 ) {
   val align = if (self) Alignment.End else Alignment.Start
   val bubbleBg = if (self) Color(0xFF053E3F) else Color(0xFF161F26)
@@ -2162,14 +1800,8 @@ fun GhostViewBubble(
           .padding(10.dp)
       ) {
         if (!self) {
-          val senderUser = activeUsers.find { it.username.lowercase().trim() == msg.sender.lowercase().trim() }
-          val displayNameToShow = if (senderUser != null && !senderUser.displayName.isNullOrBlank()) {
-            senderUser.displayName
-          } else {
-            msg.sender.replaceFirstChar { it.uppercase() }
-          }
           Text(
-            text = displayNameToShow,
+            text = msg.sender.replaceFirstChar { it.uppercase() },
             color = Color(0xFF00E5FF),
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
@@ -2192,7 +1824,7 @@ fun GhostViewBubble(
             GhostViewDocumentBubble(msg)
           }
           "image" -> {
-            GhostViewImageBubble(msg)
+            GhostViewImageBubble(msg, onDelete, onMarkViewed)
           }
           else -> {
             Text(
@@ -2511,16 +2143,94 @@ fun GhostViewDocumentBubble(
 // GALLERY MEDIA COMPOSABLE CARD WITH ACTUAL PHOTO RENDERING
 @Composable
 fun GhostViewImageBubble(
-  msg: WhatsAppMessage
+  msg: WhatsAppMessage,
+  onDelete: () -> Unit = {},
+  onMarkViewed: () -> Unit = {}
 ) {
-  if (!msg.mediaUrl.isNullOrEmpty()) {
-    Base64Image(
-      base64Str = msg.mediaUrl,
+  var showSecureViewer by remember { mutableStateOf(false) }
+  val coroutineScope = rememberCoroutineScope()
+
+  if (showSecureViewer && !msg.mediaUrl.isNullOrEmpty()) {
+    GhostViewSecureViewer(
+      imageUrl = msg.mediaUrl,
+      onClose = {
+        showSecureViewer = false
+        onMarkViewed()
+      }
+    )
+  }
+
+  if (msg.isOneTime) {
+    Box(
       modifier = Modifier
         .fillMaxWidth()
         .height(180.dp)
         .clip(RoundedCornerShape(8.dp))
-    )
+        .background(Color(0xFF24303B))
+        .clickable(enabled = !msg.isViewed) {
+          showSecureViewer = true
+        },
+      contentAlignment = Alignment.Center
+    ) {
+      Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (msg.isViewed) {
+          Icon(Icons.Default.CheckCircle, contentDescription = "Opened", tint = Color.Gray, modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("Opened", color = Color.Gray, fontWeight = FontWeight.Bold)
+        } else {
+          Icon(Icons.Default.Photo, contentDescription = "Photo", tint = Color(0xFF00E5FF), modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("Photo", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+        }
+      }
+    }
+  } else if (!msg.mediaUrl.isNullOrEmpty()) {
+    if (msg.disappearing && !msg.isViewed) {
+       Box(
+         modifier = Modifier
+           .fillMaxWidth()
+           .height(180.dp)
+           .clip(RoundedCornerShape(8.dp))
+           .background(Color(0xFF24303B)),
+         contentAlignment = Alignment.Center
+       ) {
+         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+           Icon(Icons.Default.VisibilityOff, contentDescription = "Hidden", tint = Color(0xFFEF4444), modifier = Modifier.size(32.dp))
+           Spacer(modifier = Modifier.height(8.dp))
+           Button(
+             onClick = { 
+                 onMarkViewed()
+                 coroutineScope.launch {
+                     kotlinx.coroutines.delay(10000)
+                     onDelete()
+                 }
+             },
+             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+           ) {
+             Text("Tap to View (10s)", color = Color.Black, fontWeight = FontWeight.Bold)
+           }
+         }
+       }
+    } else {
+       if (msg.mediaUrl.startsWith("http")) {
+           AsyncImage(
+             model = msg.mediaUrl,
+             contentDescription = "Cloudinary Image",
+             modifier = Modifier
+               .fillMaxWidth()
+               .height(180.dp)
+               .clip(RoundedCornerShape(8.dp))
+           )
+       } else {
+           Base64Image(
+             base64Str = msg.mediaUrl,
+             modifier = Modifier
+               .fillMaxWidth()
+               .height(180.dp)
+               .clip(RoundedCornerShape(8.dp))
+           )
+       }
+    }
   } else {
     Box(
       modifier = Modifier
@@ -2561,7 +2271,152 @@ fun GhostViewImageBubble(
   }
 }
 
+// STATUS/UPDATES VIEW (Zero dummy channels, only real active users)
+@Composable
+fun GhostViewUpdatesTab(
+  activeUsers: List<WhatsAppUser>
+) {
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(Color(0xFF080C10))
+      .padding(16.dp)
+      .verticalScroll(rememberScrollState()),
+    verticalArrangement = Arrangement.spacedBy(20.dp)
+  ) {
+    Text("Recent Status Stories", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    
+    if (activeUsers.isEmpty()) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(100.dp),
+        contentAlignment = Alignment.Center
+      ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Status Portal", tint = Color(0xFF24303B), modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text("No status feeds detected from peer nodes", color = Color(0xFF8E9AA4), fontSize = 13.sp)
+        }
+      }
+    } else {
+      LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+              modifier = Modifier.size(62.dp),
+              contentAlignment = Alignment.Center
+            ) {
+              Box(
+                modifier = Modifier
+                  .size(62.dp)
+                  .drawBehind {
+                    drawCircle(
+                      color = Color(0xFF8E9AA4),
+                      style = Stroke(width = 2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 10f), 0f))
+                    )
+                  }
+              )
+              Box(
+                modifier = Modifier
+                  .size(52.dp)
+                  .clip(CircleShape)
+                  .background(Color(0xFF121B22)),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(imageVector = Icons.Default.Add, contentDescription = "Add status update", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp))
+              }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text("My Status", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("Tap to upload", color = Color(0xFF8E9AA4), fontSize = 10.sp)
+          }
+        }
 
+        items(activeUsers) { user ->
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+              modifier = Modifier.size(62.dp),
+              contentAlignment = Alignment.Center
+            ) {
+              Box(
+                modifier = Modifier
+                  .size(62.dp)
+                  .drawBehind {
+                    drawCircle(
+                      color = Color(0xFF00E5FF),
+                      style = Stroke(width = 2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 10f), 0f))
+                    )
+                  }
+              )
+              Box(
+                modifier = Modifier
+                  .size(52.dp)
+                  .clip(CircleShape)
+                  .background(Color(user.avatarColor)),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = user.username.take(2).uppercase(),
+                  color = Color.Black,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 14.sp
+                )
+              }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(user.username.replaceFirstChar { it.uppercase() }, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("Recent", color = Color(0xFF8E9AA4), fontSize = 10.sp)
+          }
+        }
+      }
+    }
+
+    HorizontalDivider(color = Color(0xFF121B22))
+
+    // Real system announcements and verify info
+    Text("Verified Encryption Verification Nodes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      val announcements = listOf(
+        Pair("GhostView Cryptography Portal", "Active security tunnels verified under Zero-Knowledge protocols."),
+        Pair("System Core Security", "Handshake fingerprints are generated locally using device private keys.")
+      )
+      announcements.forEach { node ->
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF121B22))
+            .padding(14.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Box(
+            modifier = Modifier
+              .size(44.dp)
+              .clip(CircleShape)
+              .background(Color(0xFF00E5FF)),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(imageVector = Icons.Default.Security, contentDescription = "Announcement Flag", tint = Color.Black, modifier = Modifier.size(20.dp))
+          }
+          Spacer(modifier = Modifier.width(14.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            Text(node.first, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(node.second, color = Color(0xFF8E9AA4), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+          Button(
+            onClick = {},
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 2.dp)
+          ) {
+            Text("VERIFY", color = Color(0xFF00E5FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+          }
+        }
+      }
+    }
+  }
+}
 
 // CALLS TAB (Recent call records populated dynamically from active contact directory)
 @Composable
@@ -2661,6 +2516,28 @@ fun GhostViewCallsTab(
                   modifier = Modifier.size(20.dp)
                 )
               }
+              Spacer(modifier = Modifier.width(12.dp))
+              Column {
+                Text(user.username.replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.Videocam, 
+                    contentDescription = "Videocam Icon",
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(14.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Secure encrypted handshake call", color = Color(0xFF8E9AA4), fontSize = 11.sp)
+                }
+              }
+            }
+            IconButton(onClick = { onTriggerCall(user.username, "video") }) {
+              Icon(
+                imageVector = Icons.Default.Videocam, 
+                contentDescription = "Establish Video Call",
+                tint = Color(0xFF00E5FF),
+                modifier = Modifier.size(22.dp)
+              )
             }
           }
         }
@@ -2698,13 +2575,6 @@ fun GhostViewSettingsTab(
   // Profile photo state (Base64)
   var profilePhotoBase64 by remember { mutableStateOf<String?>(null) }
 
-  // Photo preview/crop dialog state
-  var pendingPhotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
-  var showPhotoCropDialog by remember { mutableStateOf(false) }
-  var cropScale by remember { mutableFloatStateOf(1f) }
-  var cropOffsetX by remember { mutableFloatStateOf(0f) }
-  var cropOffsetY by remember { mutableFloatStateOf(0f) }
-
   // Load existing bio from Firestore
   LaunchedEffect(username) {
     if (username.isNotEmpty()) {
@@ -2716,168 +2586,22 @@ fun GhostViewSettingsTab(
             editBio = doc.getString("bio") ?: "Hey there! I am using GhostView."
             editStatusText = doc.getString("statusText") ?: "Available"
             profilePhotoBase64 = doc.getString("photoBase64")
-            editDisplayName = doc.getString("displayName") ?: username.replaceFirstChar { it.uppercase() }
           }
       } catch (e: Exception) {}
     }
   }
 
-  // Profile photo picker launcher — now opens preview dialog instead of uploading directly
+  // Profile photo picker launcher
   val photoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.GetContent()
   ) { uri ->
     if (uri != null) {
       coroutineScope.launch {
-        val bitmap = processProfilePhoto(context, uri)
-        if (bitmap != null) {
-          pendingPhotoBitmap = bitmap
-          cropScale = 1f
-          cropOffsetX = 0f
-          cropOffsetY = 0f
-          showPhotoCropDialog = true
-        } else {
-          Toast.makeText(context, "Failed to load image", Toast.LENGTH_SHORT).show()
-        }
-      }
-    }
-  }
-
-  // Photo Crop & Preview Dialog
-  if (showPhotoCropDialog && pendingPhotoBitmap != null) {
-    val bmp = pendingPhotoBitmap!!
-    val previewBitmap = remember(bmp) { bmp.asImageBitmap() }
-    var isUploading by remember { mutableStateOf(false) }
-
-    Box(
-      modifier = Modifier
-        .fillMaxSize()
-        .background(Color(0xE6000000))
-        .clickable(enabled = false) {},
-      contentAlignment = Alignment.Center
-    ) {
-      Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF121B22)),
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(24.dp)
-      ) {
-        Column(
-          modifier = Modifier.padding(24.dp),
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-          // Title
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Text("Preview Profile Photo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            IconButton(onClick = {
-              showPhotoCropDialog = false
-              pendingPhotoBitmap = null
-            }) {
-              Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFF8E9AA4))
-            }
-          }
-
-          HorizontalDivider(color = Color(0xFF24303B))
-
-          // Circular preview
-          Box(
-            modifier = Modifier
-              .size(200.dp)
-              .clip(CircleShape)
-              .background(Color(0xFF1E293B))
-              .border(2.dp, Color(0xFF00E5FF), CircleShape),
-            contentAlignment = Alignment.Center
-          ) {
-            Image(
-              bitmap = previewBitmap,
-              contentDescription = "Profile photo preview",
-              modifier = Modifier
-                .size(200.dp)
-                .clip(CircleShape)
-                .graphicsLayer(
-                  scaleX = cropScale,
-                  scaleY = cropScale,
-                  translationX = cropOffsetX,
-                  translationY = cropOffsetY
-                ),
-              contentScale = ContentScale.Crop
-            )
-          }
-
-          Text("Pinch to zoom • Drag to reposition", color = Color(0xFF8E9AA4), fontSize = 11.sp)
-
-          // Zoom slider
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Icon(Icons.Default.ZoomOut, contentDescription = null, tint = Color(0xFF8E9AA4), modifier = Modifier.size(18.dp))
-            Slider(
-              value = cropScale,
-              onValueChange = { cropScale = it },
-              valueRange = 0.5f..3f,
-              modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-              colors = SliderDefaults.colors(
-                thumbColor = Color(0xFF00E5FF),
-                activeTrackColor = Color(0xFF00E5FF),
-                inactiveTrackColor = Color(0xFF24303B)
-              )
-            )
-            Icon(Icons.Default.ZoomIn, contentDescription = null, tint = Color(0xFF8E9AA4), modifier = Modifier.size(18.dp))
-          }
-
-          // Action buttons
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-          ) {
-            // Cancel button
-            OutlinedButton(
-              onClick = {
-                showPhotoCropDialog = false
-                pendingPhotoBitmap = null
-              },
-              modifier = Modifier.weight(1f),
-              border = BorderStroke(1.dp, Color(0xFF24303B)),
-              colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF8E9AA4))
-            ) {
-              Text("Cancel")
-            }
-
-            // Confirm button
-            Button(
-              onClick = {
-                isUploading = true
-                coroutineScope.launch {
-                  val base64 = bitmapToProfileBase64(bmp)
-                  if (base64.isNotEmpty()) {
-                    profilePhotoBase64 = base64
-                    firestoreService?.updateUserProfile(username = username, newPhotoBase64 = base64)
-                    Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
-                  }
-                  isUploading = false
-                  showPhotoCropDialog = false
-                  pendingPhotoBitmap = null
-                }
-              },
-              modifier = Modifier.weight(1f),
-              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-              enabled = !isUploading
-            ) {
-              if (isUploading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
-              } else {
-                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Set Photo", color = Color.Black, fontWeight = FontWeight.Bold)
-              }
-            }
-          }
+        val (base64, _) = uriToBase64(context, uri)
+        if (base64.isNotEmpty()) {
+          profilePhotoBase64 = base64
+          firestoreService?.updateUserProfile(username = username, newPhotoBase64 = base64)
+          Toast.makeText(context, "Profile photo updated!", Toast.LENGTH_SHORT).show()
         }
       }
     }
@@ -2985,25 +2709,22 @@ fun GhostViewSettingsTab(
           Button(
             onClick = {
               isSavingProfile = true
-              // Update Firestore bio + status + name
-              val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-              val docRef = db.collection("ghostview_users").document(username.lowercase().trim())
-              val updates = mutableMapOf<String, Any>(
-                "displayName" to editDisplayName.trim(),
-                "bio" to editBio.trim(),
-                "statusText" to editStatusText.trim(),
-                "lastSeen" to System.currentTimeMillis()
-              )
-              docRef.update(updates)
-                .addOnSuccessListener {
-                  isSavingProfile = false
-                  showEditProfileDialog = false
-                  Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
-                }
-                .addOnFailureListener {
-                  isSavingProfile = false
-                  Toast.makeText(context, "Failed to update profile", Toast.LENGTH_SHORT).show()
-                }
+              // Update Firebase Auth display name
+              val fbAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
+              fbAuth.currentUser?.updateProfile(userProfileChangeRequest {
+                displayName = editDisplayName.trim()
+              })?.addOnCompleteListener {
+                // Update Firestore bio + status
+                firestoreService?.updateUserProfile(
+                  username = username,
+                  newBio = editBio.trim(),
+                  newStatusText = editStatusText.trim()
+                )
+                isSavingProfile = false
+                onNicknameChanged(editDisplayName.trim())
+                showEditProfileDialog = false
+                Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+              }
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
             modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -3110,10 +2831,9 @@ fun GhostViewSettingsTab(
 
           Spacer(modifier = Modifier.width(16.dp))
           Column(modifier = Modifier.weight(1f)) {
-            Text(editDisplayName.ifEmpty { username.replaceFirstChar { it.uppercase() } }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(editBio.ifEmpty { "Hey there! I am using GhostView." }, color = Color(0xFF8E9AA4), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(modifier = Modifier.height(6.dp))
+            Text(username.replaceFirstChar { it.uppercase() }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(editBio.ifEmpty { "Hey there! I am using GhostView." }, color = Color(0xFF8E9AA4), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
               Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.White))
               Spacer(modifier = Modifier.width(6.dp))
@@ -3123,15 +2843,15 @@ fun GhostViewSettingsTab(
         }
 
         // Edit Profile Button
-        Box(
-          modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF13171F))
-            .border(BorderStroke(1.dp, Color(0xFF33353D)), CircleShape)
-            .clickable { showEditProfileDialog = true },
-          contentAlignment = Alignment.Center
+        Button(
+          onClick = {
+            editDisplayName = username
+            showEditProfileDialog = true
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0x1A00E5FF)),
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(10.dp),
+          border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x6600E5FF))
         ) {
           Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -3681,6 +3401,9 @@ fun GhostViewSecureViewer(
     if (!hasCameraPermission) {
       permissionLauncher.launch(Manifest.permission.CAMERA)
     }
+    // Automatically close after 10 seconds to ensure they don't see it forever
+    kotlinx.coroutines.delay(10000)
+    onClose()
   }
 
   Dialog(
@@ -3716,27 +3439,76 @@ fun GhostViewSecureViewer(
                 .build()
               val detector = FaceDetection.getClient(options)
 
+              var isUploading = false
+              val client = OkHttpClient()
+              
               val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
                   it.setAnalyzer(executor) { imageProxy ->
+                    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
                     val mediaImage = imageProxy.image
                     if (mediaImage != null) {
-                      val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                      detector.process(image)
-                        .addOnSuccessListener { faces ->
-                          // Anti-Snoop: Blur if 2 or more faces are looking at the screen
-                          isSnooperDetected = faces.size >= 2
-                        }
-                        .addOnFailureListener { e ->
-                          Log.e("GhostView", "Face detection failed", e)
-                        }
-                        .addOnCompleteListener {
-                          imageProxy.close()
-                        }
+                        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                        detector.process(image)
+                            .addOnSuccessListener { faces ->
+                                // Trigger Snooper Warning if more than 1 face is detected!
+                                if (faces.size > 1) {
+                                    Handler(Looper.getMainLooper()).post {
+                                        isSnooperDetected = true
+                                    }
+                                } else {
+                                    // If no extra faces, fallback to Python API for object/phone detection
+                                    if (!isUploading) {
+                                        isUploading = true
+                                        try {
+                                            val bitmap = imageProxy.toBitmap()
+                                            val stream = ByteArrayOutputStream()
+                                            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                                            val byteArray = stream.toByteArray()
+                                            
+                                            val requestBody = MultipartBody.Builder()
+                                                .setType(MultipartBody.FORM)
+                                                .addFormDataPart("image", "frame.jpg", byteArray.toRequestBody("image/jpeg".toMediaTypeOrNull()))
+                                                .build()
+                                                
+                                            val request = Request.Builder()
+                                                .url("http://172.18.6.174:5000/detect")
+                                                .post(requestBody)
+                                                .build()
+                                                
+                                            client.newCall(request).enqueue(object : Callback {
+                                                override fun onFailure(call: Call, e: IOException) {
+                                                    isUploading = false
+                                                }
+                                                override fun onResponse(call: Call, response: Response) {
+                                                    response.body?.string()?.let { jsonString ->
+                                                        try {
+                                                            val json = JSONObject(jsonString)
+                                                            val blackout = json.optBoolean("blackout", false)
+                                                            Handler(Looper.getMainLooper()).post {
+                                                                isSnooperDetected = blackout
+                                                            }
+                                                        } catch(e: Exception) { }
+                                                    }
+                                                    isUploading = false
+                                                }
+                                            })
+                                        } catch(e: Exception) {
+                                            isUploading = false
+                                        }
+                                    } else {
+                                        // Clear warning if no extra faces and API is busy
+                                        // We let the API callback handle clearing if needed.
+                                    }
+                                }
+                            }
+                            .addOnCompleteListener {
+                                imageProxy.close()
+                            }
                     } else {
-                      imageProxy.close()
+                        imageProxy.close()
                     }
                   }
                 }
@@ -3760,27 +3532,46 @@ fun GhostViewSecureViewer(
       }
 
       // The secure image
-      AsyncImage(
-        model = imageUrl,
-        contentDescription = "Secure Photo",
-        modifier = Modifier
-          .fillMaxSize()
-          .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
-      )
+      if (imageUrl.startsWith("http")) {
+        AsyncImage(
+          model = imageUrl,
+          contentDescription = "Secure Photo",
+          modifier = Modifier
+            .fillMaxSize()
+            .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
+        )
+      } else {
+        Base64Image(
+          base64Str = imageUrl,
+          modifier = Modifier
+            .fillMaxSize()
+            .then(if (isSnooperDetected) Modifier.blur(25.dp) else Modifier)
+        )
+      }
 
       if (isSnooperDetected) {
         Box(
           modifier = Modifier
             .fillMaxSize()
-            .background(Color.Red.copy(alpha = 0.5f)),
+            .background(Color.Black),
           contentAlignment = Alignment.Center
         ) {
-          Text(
-            text = "⚠️ SNOOPER DETECTED ⚠️",
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 24.sp
-          )
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.VisibilityOff, contentDescription = "Hidden", tint = Color.Red, modifier = Modifier.size(64.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              text = "⚠️ SNOOPER DETECTED ⚠️",
+              color = Color.Red,
+              fontWeight = FontWeight.Bold,
+              fontSize = 24.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+              text = "Image hidden for your privacy.",
+              color = Color.White,
+              fontSize = 14.sp
+            )
+          }
         }
       }
 

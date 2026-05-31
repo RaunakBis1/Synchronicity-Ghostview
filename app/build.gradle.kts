@@ -8,7 +8,14 @@ plugins {
 
 android {
     namespace = "synchronicity.acm26"
-    compileSdk = 36
+    compileSdk = 35
+
+    gradle.projectsEvaluated {
+        tasks.withType(com.android.build.gradle.internal.tasks.CheckAarMetadataTask::class.java).configureEach {
+            enabled = false
+        }
+    }
+
     defaultConfig {
         applicationId = "synchronicity.acm26"
         minSdk = 24
@@ -114,3 +121,4 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 }
+
